@@ -23,11 +23,12 @@ def clean_column_name(column_name):
 
 
 def prepare_database(filepaths=None):
+    if filepaths is not None:
+        remove_database_file()
     conn = duckdb.connect("my_database.duckdb")
     print(f"Files to be processed: {filepaths}")
-
     if filepaths:
-        remove_database_file()
+
         for filepath in filepaths:
             print(f"Processing file: {filepath}")
 

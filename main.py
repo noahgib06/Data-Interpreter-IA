@@ -67,8 +67,8 @@ def llm_data_interpreter(question, schema, initial_context):
             break
 
     final_response = generate_final_response_with_llama(
-        context, sql_results, python_results, reasoning_model
-    )
+        context, sql_results, python_results, reasoning_model)
+    
     print(f"Final response from Llama: {final_response}")
     return final_response
 
@@ -147,6 +147,7 @@ async def query_endpoint(request: QueryRequest):
     try:
         complex_query = request.complex_query
         schema = get_schema(duckdb.connect("my_database.duckdb"))
+        print(schema)
         initial_context = {"question": complex_query}
         response = llm_data_interpreter(complex_query, schema, initial_context)
         return {"analysis_result": response}
@@ -156,7 +157,7 @@ async def query_endpoint(request: QueryRequest):
 
 if __name__ == "__main__":
     filepath = sys.argv[1:] if len(sys.argv) > 1 else None
-    if sys.argv[1] == "--help":
+    if len(sys.argv) == 2 and sys.argv[1] == "--help":
         run_help_command()
         exit(0)
     prepare_database(filepath)

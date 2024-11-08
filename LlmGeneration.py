@@ -18,7 +18,7 @@ def command_r_plus_plan(question, schema, contextualisation_model):
         f'La demande est : "{question}"\n\n'
         "**Plan d'action :**\n"
         "- Étape 1 : Identifiez si des informations sont disponibles directement dans les colonnes, et précisez les valeurs de colonne ou types d’information à extraire.\n"
-        "- Étape 2 : Si la demande requiert une extraction de données (comme texte, OCR, code), suggérez des requêtes SQL simples et précises pour obtenir un échantillon représentatif de chaque type de donnée disponible, ou pour répondre à des questions spécifiques.\n"
+        "- Étape 2 : Si la demande requiert une extraction de données (comme texte, OCR, code), suggérez des requêtes SQL simples et précises pour obtenir un échantillon représentatif de chaque type de donnée disponible, ou pour répondre à des questions spécifiques. Cette requete doit uniquement se baser sur le schéma que je te fournis. Tu ne dois rien ajouter qui ne soit pas mentionné dans le schéma de la base de donnée.\n"
         "- Étape 3 : Si la demande implique une interprétation (par exemple, analyser le contenu ou trouver des mots-clés), expliquez brièvement comment interpréter les résultats SQL sans utiliser d'étapes de réflexion intermédiaires ou de raisonnement complexe.\n\n"
         "Répondez uniquement aux besoins précis de la question sans suggérer de code Python, sauf si spécifiquement requis pour traiter un type de donnée extrait. **Si la demande inclut des termes comme chart, plot, graph, ou fait référence à un calcul ou une visualisation, générez du code pour créer un graphique ou effectuer le calcul.  Le plan doit contenir une seule méthode (SQL ou autre) en fonction de ce qui est nécessaire pour traiter la demande."
     )
