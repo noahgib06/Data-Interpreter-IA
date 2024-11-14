@@ -10,7 +10,9 @@ def command_r_plus_plan(question, schema, contextualisation_model):
             f"Table '{table_name}' contient les colonnes suivantes :\n"
         )
         for column in columns:
-            schema_description += f"  - '{column['name']}' (type: {column['type']})\n"
+            schema_description += (
+                f"  - '{column['name']}' (type: {column['type']})\n"
+            )
         schema_description += "\n"
 
     prompt = (
@@ -19,7 +21,7 @@ def command_r_plus_plan(question, schema, contextualisation_model):
         "**Plan d'action :**\n"
         "- Étape 1 : Identifiez si des informations sont disponibles directement dans les colonnes, et précisez les valeurs de colonne ou types d’information à extraire.\n"
         "- Étape 2 : Si la demande requiert une extraction de données (comme texte, OCR, code), suggérez des requêtes SQL simples et précises pour obtenir un échantillon représentatif de chaque type de donnée disponible, ou pour répondre à des questions spécifiques. Cette requete doit uniquement se baser sur le schéma que je te fournis. Tu ne dois rien ajouter qui ne soit pas mentionné dans le schéma de la base de donnée.\n"
-        "- Étape 3 : Si la demande implique une interprétation (par exemple, analyser le contenu ou trouver des mots-clés), expliquez brièvement comment interpréter les résultats SQL sans utiliser d'étapes de réflexion intermédiaires ou de raisonnement complexe.\n\n"
+        "- Étape 3 : Si la demande implique une interprétation (par exemple, analyser le contenu ou trouver des mots-clés), expliquez brièvement comment interpréter les résultats SQL sans utiliser d'étapes de réflexion intermédiaires ou de raisonnement complexe.\n"
         "Répondez uniquement aux besoins précis de la question sans suggérer de code Python, sauf si spécifiquement requis pour traiter un type de donnée extrait. **Si la demande inclut des termes comme chart, plot, graph, ou fait référence à un calcul ou une visualisation, générez du code pour créer un graphique ou effectuer le calcul.  Le plan doit contenir une seule méthode (SQL ou autre) en fonction de ce qui est nécessaire pour traiter la demande."
     )
 
@@ -32,7 +34,13 @@ def command_r_plus_plan(question, schema, contextualisation_model):
 
 
 def generate_tools_with_llm(
-    plan, schema, context, sql_results, python_results, database_model, reasoning_model
+    plan,
+    schema,
+    context,
+    sql_results,
+    python_results,
+    database_model,
+    reasoning_model,
 ):
     print("Génération des outils en fonction du plan...")
     schema_description = "Voici le schéma de la base de données :\n"
@@ -42,7 +50,9 @@ def generate_tools_with_llm(
             f"Table '{table_name}' contient les colonnes suivantes :\n"
         )
         for column in columns:
-            schema_description += f"  - '{column['name']}' (type: {column['type']})\n"
+            schema_description += (
+                f"  - '{column['name']}' (type: {column['type']})\n"
+            )
         schema_description += "\n"
 
     if "SQL" in plan:
@@ -54,14 +64,13 @@ def generate_tools_with_llm(
             "**Requête SQL :**\n"
             "- Formulez une requête SQL simple qui extrait uniquement les informations nécessaires du schéma de la base de données pour répondre à la question ou aux étapes du plan.\n"
             "- La requête doit être directe, sans clauses complexes (comme des agrégations avancées ou des jointures inutiles), sauf si spécifiquement nécessaire.\n"
-            "- Utilisez les valeurs de `page`, `ocr_text` ou `content` selon le type de document, ou filtrez les résultats pour fournir des exemples clairs de chaque catégorie de données disponibles.\n\n"
-            "Si la requête nécessite des optimisations, appliquez-les, mais restez fidèle au plan d'action."
+            "Le point majeur est de rester fidèle, ce que dit exactement le plan pour les requetes SQL il faut le faire à l'identique, tu prends la requete qu'il y a souvent dans une partie souvent nommé dans le plan : (Voici une requête SQL) ou autre chose de ce genre"
         )
         sql_tool = database_model.invoke(prompt)
         sql_results = execute_sql_query(sql_tool)
         context["sql_results"] = sql_results
 
-    if "Python" in plan:
+    if "Python" or "python" in plan:
         print("Génération de code Python...")
         print("les voila:", sql_results)
         prompt = (

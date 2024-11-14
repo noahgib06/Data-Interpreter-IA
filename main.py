@@ -67,8 +67,9 @@ def llm_data_interpreter(question, schema, initial_context):
             break
 
     final_response = generate_final_response_with_llama(
-        context, sql_results, python_results, reasoning_model)
-    
+        context, sql_results, python_results, reasoning_model
+    )
+
     print(f"Final response from Llama: {final_response}")
     return final_response
 
@@ -117,7 +118,9 @@ def run_help_command():
     print(
         "      - Lorsqu'une requête est envoyée à l'API, elle est interprétée, et une requête SQL ou un code de"
     )
-    print("        traitement est généré pour obtenir les informations souhaitées.\n")
+    print(
+        "        traitement est généré pour obtenir les informations souhaitées.\n"
+    )
     print("  3. Modèles LLM intégrés:")
     print(
         "      - Plusieurs modèles LLM (Large Language Models) sont utilisés pour interpréter les requêtes, générer"
@@ -126,7 +129,9 @@ def run_help_command():
         "        des requêtes SQL ou du code, et formuler des réponses basées sur les résultats de la base de données.\n"
     )
     print("Exemples d'utilisation :")
-    print("  Pour charger et préparer les données issues de plusieurs fichiers :")
+    print(
+        "  Pour charger et préparer les données issues de plusieurs fichiers :"
+    )
     print("      python script.py file1.xlsx file2.json file3.py\n")
     print("API Endpoint:")
     print(
