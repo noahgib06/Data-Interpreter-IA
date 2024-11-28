@@ -10,9 +10,7 @@ def command_r_plus_plan(question, schema, contextualisation_model):
             f"Table '{table_name}' contient les colonnes suivantes :\n"
         )
         for column in columns:
-            schema_description += (
-                f"  - '{column['name']}' (type: {column['type']})\n"
-            )
+            schema_description += f"  - '{column['name']}' (type: {column['type']})\n"
         schema_description += "\n"
 
     prompt = (
@@ -50,9 +48,7 @@ def generate_tools_with_llm(
             f"Table '{table_name}' contient les colonnes suivantes :\n"
         )
         for column in columns:
-            schema_description += (
-                f"  - '{column['name']}' (type: {column['type']})\n"
-            )
+            schema_description += f"  - '{column['name']}' (type: {column['type']})\n"
         schema_description += "\n"
 
     if "SQL" in plan:
@@ -78,36 +74,83 @@ def generate_tools_with_llm(
             f"Le plan d’action défini est le suivant :\n{plan}\n\n"
             "**Instructions pour le code :**\n"
             "1. Utilisez uniquement les données exactes fournies dans les résultats ci-dessous, sans générer de valeurs fictives ou supplémentaires. "
-            "Si des valeurs spécifiques ne sont pas disponibles, n’ajoutez pas de valeurs par défaut ; limitez-vous strictement aux données fournies.\n"
-            "2. Que la demande porte sur un graphique, un calcul, ou une autre opération, générez le code en utilisant exclusivement les valeurs extraites, en maximisant les éléments inclus pour offrir une vue complète, et sans inventer de données.\n"
-            "3. Assurez-vous que le code est complet et fonctionnel, sans sections incomplètes ni parties laissées pour une intervention manuelle.\n"
-            "4. Limitez toute logique conditionnelle ou hypothèse ; si une donnée manque, n’essayez pas de la compléter ou de la deviner.\n\n"
-            f"Voici les résultats SQL disponibles, s’ils sont extraits : {sql_results}\n\n"
-            "Générez le code en fonction de ces résultats exacts comme données statiques. Le code ne doit contenir que des valeurs provenant de ces résultats et répondre directement à la demande (graphique, calcul, ou autre)."
+            "2. Ne générez aucune valeur par défaut pour compenser des données manquantes ; **limitez-vous strictement aux données fournies**.\n"
+            "3. Assurez-vous que le code est **complet, fonctionnel et prêt à l'emploi**, sans sections incomplètes ou nécessitant une intervention manuelle.\n"
+            "4. Limitez toute **logique conditionnelle** ou **supposition**. Si une donnée est manquante, ne tentez pas de la compléter ou de la deviner ; utilisez uniquement les résultats fournis.\n"
+            "5. Vous travaillez dans un **environnement Docker sans interface graphique**. Toute visualisation, comme un graphique avec matplotlib, doit être **sauvegardée dans un fichier** (par exemple, PNG pour les graphiques).\n"
+            "6. **Aucune utilisation de plt.show()** n'est autorisée, car les résultats graphiques ne peuvent pas être affichés directement.\n"
+            "7. Si la tâche implique des **calculs simples ou des opérations non visuelles** (par exemple, calcul de moyennes), générez simplement le code approprié sans tenter de produire des fichiers.\n"
+            "8. Pour les résultats graphiques, assurez-vous que les fichiers sont sauvegardés sans vous soucier du format ou du nom (ex. utilisez des noms par défaut).\n\n"
+            "9. Que la demande porte sur un graphique, un calcul, ou une autre opération, générez le code en utilisant exclusivement les valeurs extraites, en maximisant les éléments inclus pour offrir une vue complète, et sans inventer de données.\n"
+            "10. Que la demande porte sur un graphique, un calcul, ou une autre opération, générez le code en utilisant exclusivement les valeurs extraites, en maximisant les éléments inclus pour offrir une vue complète, et sans inventer de données.\n"
+            f"Voici les résultats SQL disponibles :\n{sql_results}\n\n"
+            "**Générez un code Python complet qui exploite ces résultats comme données statiques**. Le code doit répondre directement à la demande (graphique, calcul, ou autre) et **ne jamais** faire d'appels à des bases de données comme SQLite ou des services externes pour récupérer des données."
         )
 
+        """prompt = (
+            f"Demande initiale : \"{context['question']}\"\n\n"
+            f"Plan d’action défini :\n{plan}\n\n"
+            "**Instructions strictes pour le code Python :**\n"
+            "1. Utilisez uniquement les **données exactes** fournies dans les résultats SQL ci-dessous, sans générer de valeurs fictives ou supplémentaires.\n"
+            "2. Ne générez aucune valeur par défaut pour compenser des données manquantes ; **limitez-vous strictement aux données fournies**.\n"
+            "3. Assurez-vous que le code est **complet, fonctionnel et prêt à l'emploi**, sans sections incomplètes ou nécessitant une intervention manuelle.\n"
+            "4. Limitez toute **logique conditionnelle** ou **supposition**. Si une donnée est manquante, ne tentez pas de la compléter ou de la deviner ; utilisez uniquement les résultats fournis.\n"
+            "5. Vous travaillez dans un **environnement Docker sans interface graphique**. Toute visualisation, comme un graphique avec matplotlib, doit être **sauvegardée dans un fichier** (par exemple, PNG pour les graphiques).\n"
+            "6. **Aucune utilisation de plt.show()** n'est autorisée, car les résultats graphiques ne peuvent pas être affichés directement.\n"
+            "7. Si la tâche implique des **calculs simples ou des opérations non visuelles** (par exemple, calcul de moyennes), générez simplement le code approprié sans tenter de produire des fichiers.\n"
+            "8. Pour les résultats graphiques, assurez-vous que les fichiers sont sauvegardés sans vous soucier du format ou du nom (ex. utilisez des noms par défaut).\n\n"
+            f"Voici les résultats SQL disponibles :\n{sql_results}\n\n"
+            "**Générez un code Python complet qui exploite ces résultats comme données statiques**. Le code doit répondre directement à la demande (graphique, calcul, ou autre) et **ne jamais** faire d'appels à des bases de données comme SQLite ou des services externes pour récupérer des données."
+        )"""
+
         python_tool = reasoning_model.invoke(prompt)
-        context, python_results = parse_and_execute_python_code(
+        context, python_results, files_generated = parse_and_execute_python_code(
             python_tool, context, sql_results
         )
 
-    return context, python_results, sql_results
+    return context, python_results, sql_results, files_generated
 
 
 def generate_final_response_with_llama(
-    context, sql_results, python_results, reasoning_model
+    context, sql_results, python_results, reasoning_model, files_generated
 ):
+    print("avant la réponse", files_generated)
+    # Créer la section des fichiers générés
+    files_section = ""
+    if files_generated:
+        files_section = "\nFichiers générés :\n" + "\n".join(
+            [f"- {file}" for file in files_generated]
+        )
+
+    # Construction du prompt
     print(f"Generating final response with context: {context}")
     prompt = (
         f"Contexte final :\n\n"
         f"Question : \"{context['question']}\"\n"
         f"Résultats SQL : {sql_results}\n"
         f"Résultats Python : {python_results}\n\n"
+        f"{files_section}\n\n"
         "**Réponse finale :**\n"
         "- Résumez le contenu de manière concise en expliquant de quoi traite le document ou en répondant précisément à la demande.\n"
         "- Ne faites pas de raisonnement intermédiaire ni d'ajouts spéculatifs. Utilisez uniquement les informations fournies dans le contexte final pour formuler la réponse.\n\n"
-        "Si nécessaire, reformulez les résultats pour qu’ils répondent directement à la demande sans ajout d’informations non essentielles."
+        "**Directives spécifiques :**\n"
+        "1. Si des fichiers ont été générés (mentionnés ci-dessus), expliquez brièvement leur contenu et leur utilité en lien avec la demande.\n"
+        "2. Si la réponse contient des résultats chiffrés, assurez-vous qu'ils sont bien contextualisés pour une compréhension immédiate.\n"
+        "3. Ne donnez aucune explication technique non demandée par la question initiale. Limitez-vous à une explication compréhensible pour l'utilisateur final.\n"
+        "4. Mentionnez les liens des fichiers créés (listés ci-dessus) de manière explicite dans la réponse.\n"
     )
+
+    # Appel au modèle pour générer la réponse finale
     final_response = reasoning_model.invoke(prompt)
+    print("après la réponse", files_generated)
+
+    # Ajouter les liens des fichiers générés à la fin de la réponse, s'ils existent
+    if files_generated:
+        links_section = "\n\nLiens des fichiers générés :\n" + "\n".join(
+            [f"- {file}" for file in files_generated]
+        )
+        final_response += links_section
+
+    # Afficher la réponse finale
     print(f"Final response: {final_response}")
     return final_response

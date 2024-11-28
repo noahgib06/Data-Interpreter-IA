@@ -1,5 +1,6 @@
 import duckdb
 from langchain_community.llms import Ollama
+from langchain_ollama import OllamaLLM
 import sys
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -49,7 +50,7 @@ def llm_data_interpreter(question, schema, initial_context):
         python_results = None
         plan = command_r_plus_plan(question, schema, contextualisation_model)
 
-        context, python_results, sql_results = generate_tools_with_llm(
+        context, python_results, sql_results, files_generated = generate_tools_with_llm(
             plan,
             schema,
             context,
@@ -67,7 +68,7 @@ def llm_data_interpreter(question, schema, initial_context):
             break
 
     final_response = generate_final_response_with_llama(
-        context, sql_results, python_results, reasoning_model
+        context, sql_results, python_results, reasoning_model, files_generated
     )
 
     print(f"Final response from Llama: {final_response}")
@@ -118,9 +119,7 @@ def run_help_command():
     print(
         "      - Lorsqu'une requête est envoyée à l'API, elle est interprétée, et une requête SQL ou un code de"
     )
-    print(
-        "        traitement est généré pour obtenir les informations souhaitées.\n"
-    )
+    print("        traitement est généré pour obtenir les informations souhaitées.\n")
     print("  3. Modèles LLM intégrés:")
     print(
         "      - Plusieurs modèles LLM (Large Language Models) sont utilisés pour interpréter les requêtes, générer"
@@ -129,9 +128,7 @@ def run_help_command():
         "        des requêtes SQL ou du code, et formuler des réponses basées sur les résultats de la base de données.\n"
     )
     print("Exemples d'utilisation :")
-    print(
-        "  Pour charger et préparer les données issues de plusieurs fichiers :"
-    )
+    print("  Pour charger et préparer les données issues de plusieurs fichiers :")
     print("      python script.py file1.xlsx file2.json file3.py\n")
     print("API Endpoint:")
     print(
@@ -167,7 +164,8 @@ if __name__ == "__main__":
         exit(0)
     prepare_database(filepath)
 
-    database_model = Ollama(model="duckdb-nsql:latest")
-    reasoning_model = Ollama(model="llama3.2:latest")
-    contextualisation_model = Ollama(model="command-r-plus:latest")
+    database_model = OllamaLLM(model="duckdb-nsql:latest")
+    reasoning_model = OllamaLLM(model="llama3.2:latest")
+    # contextualisation_model = OllamaLLM(model="command-r-plus:latest")
+    contextualisation_model = OllamaLLM(model="llama3.2:latest")
     uvicorn.run(app, host="0.0.0.0", port=8000)

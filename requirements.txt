@@ -21,3 +21,4 @@ pdfminer.six
 PyMuPDF
 pytesseract
 Pillow
+langchain_ollama
