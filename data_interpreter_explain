@@ -1,0 +1,38 @@
+digraph {
+	rankdir=TB size=15
+	node [color="#87CEEB" fontname=Arial shape=box style="rounded,filled"]
+	prep_fichiers [label="Étape Préliminaire :
+Préparation des Fichiers
+(Chargement unique au lancement, Parsing)" fillcolor="#FFD700" style=filled]
+	bdd [label="Base de Données
+(DuckDB)" fillcolor="#FFA07A" style=filled]
+	prep_fichiers -> bdd [label="Parsing +
+Enregistrement"]
+	requete [label="Utilisateur
+(Requête : Que faire ?)" fillcolor="#98FB98" style=filled]
+	planification [label="Agent LLM
+Planification" fillcolor="#AFEEEE" style=filled]
+	requete -> planification [label="Analyse de la question"]
+	taches [label="Plan
+(Étapes pour répondre)" fillcolor="#FFB6C1" style=filled]
+	planification -> taches [label="Propose des tâches pour y répondre"]
+	sql [label="Exécution SQL
+(Requêtes vers DB)" fillcolor="#DDA0DD" style=filled]
+	python [label="Exécution Code Python Généré
+(Analyses/Graphiques)" fillcolor="#BA55D3" style=filled]
+	taches -> sql [label="Requêtes SQL ?" labelangle=180 labeldistance=1.5 minlen=2]
+	sql -> python [label="Dépendance SQL → Python
+(Si nécessaire)" color="#4682B4" labelangle=0 labeldistance=1.5 minlen=2 style=dashed]
+	taches -> python [label="Python ?" labelangle=0 labeldistance=1.5 minlen=2]
+	resultats [label="Résultats
+(Sauvegarde, Analyse)" fillcolor="#FF6347" style=filled]
+	sql -> resultats [label="Résultats SQL" labelangle=180 labeldistance=1.5 minlen=2]
+	python -> resultats [label="Résultats Python" labelangle=0 labeldistance=1.5 minlen=2]
+	synthese [label="LLM
+(Synthèse finale)" fillcolor="#4682B4" style=filled]
+	resultats -> synthese [label="Bilan des éléments"]
+	reponse [label="Réponse
+(Utilisateur)" fillcolor="#32CD32" style=filled]
+	synthese -> reponse [label="Réponse complète"]
+	bdd -> requete [style=dashed]
+}
