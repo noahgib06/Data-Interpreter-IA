@@ -23,13 +23,24 @@ def clean_column_name(column_name):
 
 
 def prepare_database(filepaths=None):
+
     if filepaths is not None:
         remove_database_file()
-    conn = duckdb.connect("my_database.duckdb")
-    print(f"Files to be processed: {filepaths}")
-    if filepaths:
 
-        for filepath in filepaths:
+    all_filepaths = []
+    for path in filepaths:
+        if os.path.isdir(path):
+            for root, _, files in os.walk(path):
+                for file in files:
+                    all_filepaths.append(os.path.join(root, file))
+        else:
+            all_filepaths.append(path)
+
+    conn = duckdb.connect("my_database.duckdb")
+    print(f"Files to be processed: {all_filepaths}")
+    if all_filepaths:
+
+        for filepath in all_filepaths:
             print(f"Processing file: {filepath}")
 
             # Déterminer le type de fichier et charger les données
@@ -39,6 +50,9 @@ def prepare_database(filepaths=None):
                 data = pd.read_excel(filepath, sheet_name=None, engine="xlrd")
             elif filepath.endswith(".xlsx"):
                 print("Loading Excel (.xlsx) file...")
+                data = pd.read_excel(filepath, sheet_name=None, engine="openpyxl")
+            elif filepath.endswith(".xlsm"):
+                print("Loading Excel (.xlsm) file...")
                 data = pd.read_excel(filepath, sheet_name=None, engine="openpyxl")
             elif filepath.endswith(".csv"):
                 print("Loading CSV file...")
@@ -105,7 +119,7 @@ def prepare_database(filepaths=None):
                     continue
             else:
                 raise ValueError(
-                    "Le fichier n'est ni un fichier .xls, .xlsx, .csv, .json, .pdf, ni un fichier Python."
+                    "Le fichier n'est ni un fichier .xls, .xlsx, .xlsm, .csv, .json, .pdf, ni un fichier Python."
                 )
 
             # Traiter chaque feuille ou table du fichier
