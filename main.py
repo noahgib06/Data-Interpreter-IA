@@ -12,11 +12,13 @@ from LlmGeneration import (
     command_r_plus_plan,
     generate_final_response_with_llama,
 )
+from history_func import *
 
 app = FastAPI()
 
 sql_results = None
 python_results = None
+history = []
 
 
 def verify_and_reflect(context, schema):
@@ -44,11 +46,14 @@ def llm_data_interpreter(question, schema, initial_context):
     context = initial_context
     global sql_results
     global python_results
+    global history
+    history = add_message(history, "user", question)
+    print(history)
     while True:
         print("Generating plan...")
         sql_results = None
         python_results = None
-        plan = command_r_plus_plan(question, schema, contextualisation_model)
+        plan = command_r_plus_plan(question, schema, contextualisation_model, history)
 
         context, python_results, sql_results, files_generated = generate_tools_with_llm(
             plan,
@@ -68,8 +73,9 @@ def llm_data_interpreter(question, schema, initial_context):
             break
 
     final_response = generate_final_response_with_llama(
-        context, sql_results, python_results, reasoning_model, files_generated
+        context, sql_results, python_results, reasoning_model, files_generated, history
     )
+    history = add_message(history, "assistant", final_response)
 
     print(f"Final response from Llama: {final_response}")
     return final_response

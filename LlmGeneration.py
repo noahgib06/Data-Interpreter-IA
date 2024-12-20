@@ -3,7 +3,7 @@ from PythonTool import parse_and_execute_python_code
 import re
 
 
-def command_r_plus_plan(question, schema, contextualisation_model):
+def command_r_plus_plan(question, schema, contextualisation_model, history):
     """
     Génère un plan d'action basé sur la question et le schéma fourni.
     """
@@ -35,7 +35,7 @@ def command_r_plus_plan(question, schema, contextualisation_model):
     )
 
     print(f"Generating plan for question: {question}")
-    plan = contextualisation_model.invoke(prompt)
+    plan = contextualisation_model.invoke(input=prompt, context=history)
     print(f"Generated Plan: {plan}")
     return plan
 
@@ -238,7 +238,7 @@ def generate_tools_with_llm(
 
 
 def generate_final_response_with_llama(
-    context, sql_results, python_results, reasoning_model, files_generated
+    context, sql_results, python_results, reasoning_model, files_generated, history
 ):
     print("avant la réponse", files_generated)
     # Créer la section des fichiers générés
@@ -267,7 +267,7 @@ def generate_final_response_with_llama(
     )
 
     # Appel au modèle pour générer la réponse finale
-    final_response = reasoning_model.invoke(prompt)
+    final_response = reasoning_model.invoke(input=prompt, context=history)
     print("après la réponse", files_generated)
 
     # Ajouter les liens des fichiers générés à la fin de la réponse, s'ils existent
