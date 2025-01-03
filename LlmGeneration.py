@@ -20,7 +20,7 @@ def command_r_plus_plan(question, schema, contextualisation_model, history):
         f'La demande est : "{question}"\n\n'
         "**Instructions pour générer le plan d'action :**\n"
         "1. Identifiez si des informations peuvent être extraites directement des colonnes mentionnées dans le schéma. Si c'est possible, fournissez un plan pour extraire ces données directement.\n"
-        f"2. Si une extraction de données est nécessaire, proposez une requête SQL simple et précise pour obtenir uniquement les données pertinentes. Assurez-vous que cette requête respecte strictement le schéma fourni, sans faire d'hypothèses sur des colonnes ou des données non mentionnées. Il ne faut pas que tu inventes de table ou de colones mais utilise uniquement ce schema : {schema_description} \n"
+        f"2. Si une extraction de données est nécessaire, proposez une requête SQL simple, précise pour obtenir uniquement les données pertinentes et surtout prête à être exécutée sans modification au préalable. Assurez-vous que cette requête respecte strictement le schéma fourni, sans faire d'hypothèses sur des colonnes ou des données non mentionnées. Il ne faut pas que tu inventes de table ou de colones mais utilise uniquement ce schema : {schema_description} \n"
         "3. Si la demande implique une interprétation, un calcul, une visualisation ou une génération de contenu (par exemple, graphiques, calculs mathématiques, ou documents), produisez uniquement un code prêt à être exécuté, sans inclure d'explications ou de commentaires superflus.\n"
         "4. Si la demande concerne la correction ou l'amélioration d'un code existant, fournissez directement les corrections ou améliorations nécessaires sans mentionner le contexte technologique (ex. Python). Concentrez-vous sur les ajustements précis nécessaires pour répondre à la demande.\n"
         "5. Ne proposez pas de technologie ou de méthodes inutiles si ce n'est pas explicitement requis. Par exemple, pour analyser un document ou extraire des informations textuelles, limitez-vous aux étapes d'extraction ou de traitement nécessaires, sauf si la demande précise un type de sortie spécifique (chart, plot, graph, calcul, etc.).\n"
@@ -36,7 +36,7 @@ def command_r_plus_plan(question, schema, contextualisation_model, history):
         f'The request is: "{question}"\n\n'
         "**Instructions to generate the action plan:**\n"
         "1. Identify if information can be directly extracted from the columns mentioned in the schema. If possible, provide a plan to directly extract this data.\n"
-        f"2. If data extraction is necessary, propose a simple and precise SQL query to retrieve only the relevant data. Ensure that this query strictly adheres to the provided schema, without making assumptions about unspecified columns or tables. You must not invent tables or columns; use only this schema: {schema_description}\n"
+        f"2. If data extraction is necessary, propose a simple and precise SQL query to retrieve only the relevant data, ensuring it is fully executable without requiring prior modifications. Make sure this query strictly adheres to the provided schema, without making assumptions about unspecified columns or data. You must not invent tables or columns; use only this schema: {schema_description}\n"
         "3. If the request involves interpretation, calculation, visualization, or content generation (e.g., charts, mathematical calculations, or documents), produce only executable code without including unnecessary explanations or comments.\n"
         "4. If the request involves correcting or improving existing code, provide the necessary corrections or improvements directly without referencing the technological context (e.g., Python). Focus on the precise adjustments needed to address the request.\n"
         "5. Do not propose unnecessary technologies or methods unless explicitly required. For instance, when analyzing a document or extracting textual information, limit the steps to necessary extraction or processing, unless the request specifies a specific type of output (chart, plot, graph, calculation, etc.).\n"
@@ -190,26 +190,25 @@ def generate_tools_with_llm(
     """
     print("Generating tools based on the plan...")
     files_generated = []
+    results = []
 
     if "SQL" in plan:
         try:
             # Extraction de la requête SQL depuis le plan
-            sql_query = extract_sql_from_plan(plan)[-1]
-            print(f"Initial SQL Query: {sql_query}")
-
-            # Nettoyage et validation des étapes SQL
-            sql_query = clean_sql_query(sql_query, schema)
-            print(f"Cleaned SQL Query: {sql_query}")
-
-            validate_sql_with_schema(schema, sql_query)
-
-            # Ajustement avec DuckDB (type casting ou corrections spécifiques)
-            sql_query = adjust_sql_query_with_duckdb(sql_query, schema, database_model)
-            print(f"Adjusted SQL Query: {sql_query}")
-
-            # Exécuter la requête ajustée
-            sql_results = execute_sql_query(sql_query)
-            print(f"SQL Query Results: {sql_results}")
+            sql_queries = extract_sql_from_plan(plan)
+            for i, sql_query in enumerate(sql_queries):
+                print(f"Initial SQL Query: {sql_query}")
+                # Nettoyage et validation des étapes SQL
+                sql_query = clean_sql_query(sql_query, schema)
+                print(f"Cleaned SQL Query: {sql_query}")
+                validate_sql_with_schema(schema, sql_query)
+                # Ajustement avec DuckDB (type casting ou corrections spécifiques)
+                sql_query = adjust_sql_query_with_duckdb(sql_query, schema, database_model)
+                print(f"Adjusted SQL Query: {sql_query}")
+                # Exécuter la requête ajustée
+                sql_results = execute_sql_query(sql_query)
+                print(f"SQL Query Results: {sql_results}")
+                results.append(sql_results)
             context["sql_results"] = sql_results
 
         except Exception as e:
