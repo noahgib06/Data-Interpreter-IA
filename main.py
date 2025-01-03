@@ -13,6 +13,7 @@ from LlmGeneration import (
     generate_final_response_with_llama,
 )
 from history_func import *
+from version import __version__
 
 app = FastAPI()
 
@@ -164,14 +165,20 @@ async def query_endpoint(request: QueryRequest):
 
 
 if __name__ == "__main__":
-    filepath = sys.argv[1:] if len(sys.argv) > 1 else None
+    if len(sys.argv) <= 1:
+        run_help_command()
+        exit(84)
     if len(sys.argv) == 2 and sys.argv[1] == "--help":
         run_help_command()
         exit(0)
+    if len(sys.argv) == 2 and sys.argv[1] == "--v":
+        print(__version__)
+        exit(0)
+    filepath = sys.argv[1:]
     prepare_database(filepath)
 
     database_model = OllamaLLM(model="duckdb-nsql:latest")
-    reasoning_model = OllamaLLM(model="llama3.2:latest")
+    reasoning_model = OllamaLLM(model="llama3.3:latest")
     # contextualisation_model = OllamaLLM(model="command-r-plus:latest")
-    contextualisation_model = OllamaLLM(model="llama3.2:latest")
+    contextualisation_model = OllamaLLM(model="llama3.3:latest")
     uvicorn.run(app, host="0.0.0.0", port=8000)
