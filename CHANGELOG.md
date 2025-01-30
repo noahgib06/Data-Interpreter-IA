@@ -1,5 +1,18 @@
 # Récapitulatif des versions du Data Interpreter
 
+## [1.2.1] - 2025-01-30
+### Modifié
+- Corriger l'enchainement d'execution des requetes sql générées par le LLM de planification.
+- Modifier les prompts pour répondre dans la langue de la question.
+- Correction de prompt afin d'avoir une génération de code python toujours fonctionnel. 
+- Correction du mode retry dans le processus de génération de réponse afin de pouvoir retenter sa chance automatique si la réponse n'est pas convenable
+- Correction du parcer des noms des colones dans des fichiers excel afin de traiter les accents.
+
+### Ajouté
+- Mise en place d'un logger dans le projet.
+- Possibilité d'utiliser le bouton upload sur l'interface openwebui afin de pouvoir ajouter des documents.
+- Possibilité de customiser les paramètres du data interpreter via un fichier .env
+
 ## [1.1.2] - 2025-01-03
 ### Modifié
 - Correction de la détection des requêtes SQL afin de pouvoir exécuter plusieurs requêtes SQL

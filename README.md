@@ -2,10 +2,6 @@
 
 Ce projet est une application REST qui permet de traiter divers types de fichiers (à savoir .xls, .xlsx, .csv, .json, .pdf, .py) et de générer des analyses sur ces fichiers en utilisant un modèle de langage large (LLM). Il intègre des fonctionnalités d'extraction de texte, d'images, de données relationnelles et de code Python. Il utilise l'écosystème LangChain, des bases de données DuckDB, ainsi que FastAPI pour l'interface utilisateur.
 
-# Représentation Schématique du fonctionnement du Data Interpreter
-
-![Data Interpreter explain](data_interpreter_explain.png)
-
 ## Prérequis
 
 - Python 3.11 ou plus récent
@@ -129,6 +125,7 @@ curl -X POST "http://localhost:8000/query/" -H "Content-Type: application/json" 
 - `main.py` : Le script principal pour exécuter l'application.
 - `requirements.txt` : Liste des dépendances à installer.
 - `README.md` : Ce fichier de documentation.
+- `CHANGELOG.md` : Ce fichier récapitulatif des différentes versions du projet.
 
 ## Exemples de Fichiers Supportés
 
@@ -137,3 +134,8 @@ curl -X POST "http://localhost:8000/query/" -H "Content-Type: application/json" 
 - **JSON (.json)** : Normalisation des données imbriquées et chargement.
 - **PDF (.pdf)** : Extraction de texte et images avec OCR.
 - **Python (.py)** : Analyse et extraction du code, des fonctions, classes, et autres éléments Python.
+
+## Exemple de commandes additionnelles
+
+- `python main.py --help` : Permet d'obtenir le helper du programme
+- `python main.py --v` : Permet d'obtenir le numéro de version du programme actuel

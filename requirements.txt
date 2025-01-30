@@ -1,6 +1,5 @@
 duckdb==0.8.1
 numpy
-pandas
 fastapi
 uvicorn
 langchain
@@ -23,3 +22,8 @@ pytesseract
 Pillow
 langchain_ollama
 watchdog
+python-dotenv
+logger
+pandas==2.0.3
+pyarrow==12.0.0
+unidecode

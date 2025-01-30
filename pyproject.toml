@@ -1,0 +1,6 @@
+[tool.ruff]
+fix = true  # Activer la correction automatique
+line-length = 88  # Longueur maximale des lignes
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]  # Sélection des règles
