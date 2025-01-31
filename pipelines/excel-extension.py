@@ -4,6 +4,7 @@ import sys
 # Add application path to system path
 sys.path.append("/app/src")
 import logging
+import re
 import shutil
 import typing
 from logging.handlers import RotatingFileHandler
@@ -20,7 +21,7 @@ from history_func import add_message
 from LlmGeneration import (command_r_plus_plan,
                            generate_final_response_with_llama,
                            generate_tools_with_llm)
-from SetupDatabase import prepare_database, remove_database_file
+from SetupDatabase import prepare_database
 from SqlTool import get_schema
 
 load_dotenv("/app/.env")
@@ -28,6 +29,10 @@ load_dotenv("/app/.env")
 # Set global log level and log file from environment variables
 LOG_LEVEL_ENV = os.getenv("LOG_LEVEL_main", "INFO")
 LOG_FILE_MAIN = os.getenv("LOG_FILE_main", "Logs/main.log")
+UUID_REGEX = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_"
+)
+
 
 # Map log levels to logging module
 LOG_LEVEL_MAP = {
@@ -106,11 +111,14 @@ class Pipeline:
         # On stocke deux ensembles pour mieux gérer :
         #  - ceux qu'on connaît déjà dans shared_data
         #  - ceux qu'on connaît déjà dans uploads
-        self.shared_data_directory = "/app/shared_data/data/"
+        self.shared_data_directory = "/srv/data/"
         self.upload_directory = "/app/backend/data/uploads/"
         self.known_shared_files: Set[str] = set()
         self.known_upload_files: Set[str] = set()
         self.history = []
+        self.chat_id = None
+        self.custom_db_path = None
+        self.latest_files_by_chat = {}
         self.valves = self.Valves(
             LLAMAINDEX_OLLAMA_BASE_URL=os.getenv(
                 "LLAMAINDEX_OLLAMA_BASE_URL", "http://host.docker.internal:11434"
@@ -125,7 +133,7 @@ class Pipeline:
                 "LLAMAINDEX_CONTEXT_MODEL_NAME", os.getenv("CONTEXTUALISATION_MODEL")
             ),
         )
-        print(f"Valves initialized: {self.valves}")
+        logger.info(f"Valves initialized: {self.valves}")
 
         try:
             self.database_model = OllamaLLM(
@@ -141,26 +149,43 @@ class Pipeline:
                 base_url="http://host.docker.internal:11434",
             )
             test_ollama_connection()
-            print("Models initialized successfully.")
+            logger.info("Models initialized successfully.")
         except NewConnectionError as conn_error:
-            print(f"Connection to Ollama failed: {conn_error}")
+            logger.error(f"Connection to Ollama failed: {conn_error}")
             raise RuntimeError(
                 "Failed to connect to Ollama. Check the service URL and availability."
             )
         except Exception as e:
-            print(f"Error initializing models: {e}")
+            logger.error(f"Error initializing models: {e}")
             raise RuntimeError("General error during model initialization.")
 
     def scan_directory_shared(self) -> set:
-        """Scanne le répertoire shared_data et retourne le nom de fichier sans UUID."""
+        """Scanne le répertoire `/srv/data/{chat_id}` et retourne les fichiers valides."""
         files = set()
-        for f in os.listdir(self.shared_data_directory):
-            pathf = os.path.join(self.shared_data_directory, f)
+
+        # ✅ Vérifier si `chat_id` est bien défini
+        if not self.chat_id:
+            logging.warning(
+                "❌ Aucun `chat_id` défini ! Impossible de scanner les fichiers."
+            )
+            return files  # Retourne un set vide
+
+        path = os.path.join(self.shared_data_directory, self.chat_id)
+
+        # ✅ Vérifier si le dossier existe avant de le scanner
+        if not os.path.exists(path):
+            logging.warning(f"❌ Dossier non trouvé : {path}")
+            return files  # Retourne un set vide
+
+        # ✅ Scanner uniquement les fichiers autorisés
+        for f in os.listdir(path):
+            pathf = os.path.join(path, f)
             if os.path.isfile(pathf) and f.endswith(
                 (".xls", ".xlsx", ".csv", ".json", ".pdf", ".py")
             ):
                 files.add(pathf)
-        logging.debug(f"Fichiers scannés dans shared_data: {files}")
+
+        logging.debug(f"📂 Fichiers scannés dans `{path}` : {files}")
         return files
 
     def scan_directory_uploads(self) -> set:
@@ -183,104 +208,123 @@ class Pipeline:
         return parts[1] if len(parts) > 1 else filename
 
     async def on_startup(self):
-        """Au démarrage, charge les fichiers de shared_data et retient les fichiers dans uploads."""
-        logging.info("Démarrage du processus de scan des répertoires.")
-        remove_database_file()
-
-        shared_files = self.scan_directory_shared()
-        if shared_files:
-            filepaths = [
-                os.path.join(self.shared_data_directory, f) for f in shared_files
-            ]
-            prepare_database(filepaths)
-            logging.info(
-                f"Chargement des fichiers suivants dans la base de données: {shared_files}"
-            )
-        else:
-            logging.warning("Aucun fichier à charger dans shared_data.")
-
-        self.known_shared_files = shared_files
-        all_uploads = self.scan_directory_uploads()
-        self.known_upload_files = {clean for (_, clean) in all_uploads}
-        logging.info(f"Fichiers présents dans uploads: {all_uploads}")
+        pass
 
     def detect_and_process_changes(self):
-        """Détecte les fichiers nouvellement ajoutés dans uploads et gère la BD
-        si on en ajoute ou en retire de shared_data.
         """
-        # 1) État actuel du dossier shared_data (chemins complets)
-        current_shared_files = self.scan_directory_shared()
-        print("Current shared files: ", current_shared_files)
+        Ajoute les fichiers à /srv/data/{chat_id} si adding: False,
+        et supprime éventuellement de la base de données ceux qui ne sont plus présents.
+        (Ici la suppression est omise ; à adapter selon vos besoins.)
+        """
+        logger.info(f"🔍detect_and_process_changes() lancé")
+        logger.debug(f"📌 Valeur actuelle de self.chat_id: {self.chat_id}")
 
-        # 2) État actuel du dossier uploads (retourne (raw, clean))
-        current_upload_files = self.scan_directory_uploads()
-        print("Current upload files: ", current_upload_files)
-        current_upload_clean_names = {clean for (_, clean) in current_upload_files}
-
-        # 3) Identifier les nouveaux "clean names" arrivés dans uploads
-        new_uploads = current_upload_clean_names - self.known_upload_files
-        if new_uploads:
-            logging.info(f"Nouveaux fichiers détectés dans uploads: {new_uploads}")
-            for raw_file, clean_file in current_upload_files:
-                # On traite seulement les clean_file qui sont vraiment nouveaux
-                if clean_file in new_uploads:
-                    # Chemin complet du fichier dans uploads
-                    upload_file_path = os.path.join(self.upload_directory, raw_file)
-                    # Chemin final "net" dans shared_data
-                    final_path = os.path.join(self.shared_data_directory, clean_file)
-
-                    # Vérifier si ce fichier "propre" n'existe pas déjà en shared_data
-                    if final_path not in current_shared_files:
-                        try:
-                            shutil.copy2(upload_file_path, final_path)
-                            if os.path.exists(final_path):
-                                # Appeler la fonction de DB sur le fichier copié
-                                prepare_database([final_path])
-                                logging.info(
-                                    f"{raw_file} copié et importé dans la base de données."
-                                )
-                            else:
-                                logging.warning(f"Échec de la copie pour {raw_file}.")
-                        except Exception as e:
-                            logging.error(f"Erreur en copiant {raw_file}: {e}")
-                    else:
-                        logging.debug(
-                            f"{clean_file} est déjà présent dans shared_data, on ignore."
-                        )
-
-        # 4) Identifier si des fichiers ont été supprimés de shared_data
-        removed_from_shared = self.known_shared_files - current_shared_files
-        if removed_from_shared:
-            logging.info(
-                f"Fichiers supprimés détectés dans shared_data: {removed_from_shared}"
+        if not self.chat_id:
+            logging.warning(
+                "❌ Aucun chat_id défini ! Impossible de traiter les fichiers."
             )
-            conn = duckdb.connect(os.getenv("DB_FILE"))
-            for removed_file_path in removed_from_shared:
-                removed_filename = os.path.basename(removed_file_path)
-                logging.info(
-                    f"Suppression des données liées à {removed_filename} de la BD."
-                )
-                try:
-                    existing_tables = conn.execute("SHOW TABLES").fetchall()
-                    for (table_name,) in existing_tables:
-                        # On compare en fonction du nom de base, ex. "test_excel_for_program"
-                        if table_name.startswith(
-                            os.path.splitext(removed_filename)[0].lower()
-                        ):
-                            conn.execute(f"DROP TABLE IF EXISTS {table_name}")
-                            logging.info(f"Table {table_name} supprimée de la BD.")
-                except Exception as e:
-                    logging.error(
-                        f"Erreur lors de la suppression de {removed_filename} : {e}"
-                    )
-            conn.close()
+            return
 
-        # 5) Mettre à jour les sets connus pour la prochaine itération
-        self.known_shared_files = current_shared_files
-        self.known_upload_files = current_upload_clean_names
-        logging.debug("Mise à jour des états connus des fichiers terminée.")
+        chat_path = os.path.join(self.shared_data_directory, self.chat_id)
+        logger.debug(f"🔍 Chat Path: {chat_path}")
+
+        # ✅ Assurer que le dossier existe
+        if not os.path.exists(chat_path):
+            os.makedirs(chat_path, exist_ok=True)
+            logging.info(f"📁 Dossier créé : {chat_path}")
+
+        # 🔍 Liste des fichiers actuellement présents (si vous voulez gérer une suppression)
+        existing_files = set(os.listdir(chat_path))
+        existing_uuids = {f.split("_", 1)[0] for f in existing_files if "_" in f}
+        logger.debug(f"📂 DEBUG: Fichiers actuels dans {chat_path}: {existing_files}")
+        logger.debug(f"📂 DEBUG: UUIDs extraits des fichiers actuels: {existing_uuids}")
+
+        # ✅ Liste à jour après gestion
+        updated_files = []
+        new_filepaths_to_db = []  # Liste des nouveaux fichiers pour prepare_database()
+
+        logger.info("🔄 Début du traitement des fichiers...")
+
+        # Parcourir la liste des fichiers du dernier message
+        for file_data in self.latest_files_by_chat[self.chat_id]:
+            file_id = file_data.get("file_id")
+            filename = file_data.get("filename")
+
+            logger.info(
+                f"📝 Traitement du fichier : file_id={file_id}, filename={filename}"
+            )
+
+            if file_id is None or filename is None:
+                logger.error(
+                    f"🚨 ERREUR: file_id ou filename est None ! Données: {file_data}"
+                )
+                continue  # On saute ce fichier corrompu
+
+            # Si 'adding' est déjà True, on ne refait pas la copie
+            if file_data.get("adding", False) is True:
+                logger.info(f"⚠️ Fichier {filename} déjà ajouté, on skip.")
+                updated_files.append(file_data)
+                continue
+
+            # 🔥 Vérification du chemin source et destination
+            source_path = os.path.join(self.upload_directory, filename)
+            dest_path = os.path.join(chat_path, filename)
+
+            logger.info(
+                f"📥 Vérification de la copie depuis {source_path} vers {dest_path}"
+            )
+
+            # Copie du fichier si pas encore ajouté
+            if not file_data.get("adding", False):
+                if os.path.exists(source_path):
+                    shutil.copy(source_path, dest_path)
+                    logging.info(f"✅ Fichier copié: {source_path} → {dest_path}")
+                    file_data["adding"] = True  # Marquer comme ajouté
+                    new_filepaths_to_db.append(dest_path)  # Ajouter pour traitement BD
+                else:
+                    logging.warning(
+                        f"⚠️ Fichier source introuvable: {source_path}, fichier non copié."
+                    )
+
+            updated_files.append(file_data)
+
+        # 🛠️ Mettre à jour la liste des fichiers actifs
+        self.latest_files_by_chat[self.chat_id] = updated_files
+
+        # 📊 Si de nouveaux fichiers ont été ajoutés, on les envoie à la base de données
+        if new_filepaths_to_db:
+            logging.info(
+                f"📊 Envoi des nouveaux fichiers à la base de données: {new_filepaths_to_db}"
+            )
+            prepare_database(filepaths=new_filepaths_to_db, collection_id=self.chat_id)
+
+    def get_existing_files_by_uuid(self, chat_path: str) -> set:
+        """Retourne un set des UUID des fichiers existants dans `/srv/data/{chat_id}/`."""
+        existing_uuids = set()
+        for f in os.listdir(chat_path):
+            if "_" in f:
+                file_uuid = f.split("_", 1)[0]  # Extraire l'UUID du nom de fichier
+                existing_uuids.add(file_uuid)
+        return existing_uuids
+
+    def get_latest_files(self, chat_id):
+        """Retourne tous les fichiers du dernier message pour cette conversation"""
+        return self.latest_files_by_chat.get(chat_id, [])
 
     async def inlet(self, body: dict, user: typing.Optional[dict] = None) -> dict:
+        logger.debug(f"📂 DEBUG: Body reçu dans `inlet()` → {body}")
+
+        self.chat_id = body.get("metadata", {}).get("chat_id", "unknown_chat")
+
+        if self.chat_id is None:
+            logger.error("🚨 ERREUR: `chat_id` est None, correction en cours...")
+            self.chat_id = "unknown_chat"
+
+        path = os.path.join("/srv/data", self.chat_id)
+
+        if not os.path.exists(path):
+            os.makedirs(path, exist_ok=True)
+
         if self.valves.LLAMAINDEX_RAG_MODEL_NAME is not None:
             self.database_model = OllamaLLM(
                 model=self.valves.LLAMAINDEX_RAG_MODEL_NAME,
@@ -296,14 +340,93 @@ class Pipeline:
                 model=self.valves.LLAMAINDEX_CONTEXT_MODEL_NAME,
                 base_url="http://host.docker.internal:11434",
             )
-        # On ne fait la détection et le traitement des changements que sur les nouveaux + suppressions de shared_data
-        self.detect_and_process_changes()
+        logger.debug(f"📂 DEBUG: Body reçu dans inlet() → {body}")
 
-        # Extraire les fichiers du corps de la requête
+        self.chat_id = body.get("metadata", {}).get("chat_id", "unknown_chat")
+        if self.chat_id is None:
+            logger.error("🚨 ERREUR: chat_id est None, correction en cours...")
+            self.chat_id = "unknown_chat"
+
+        path = os.path.join(self.shared_data_directory, self.chat_id)
+        if not os.path.exists(path):
+            os.makedirs(path, exist_ok=True)
+
+        # Définition de LLM fictives si besoin
+        if self.valves.LLAMAINDEX_RAG_MODEL_NAME is not None:
+            # ...
+            pass
+
+        logger.debug(f"📌 DEBUG: chat_id extrait → {self.chat_id}")
+
+        files = body.get("metadata", {}).get("files", [])
+        logger.debug(f"📂 DEBUG: files extrait → {files}")
+
+        if not files:
+            logger.info("❌ Aucun fichier détecté ! Vérifie la structure du body.")
+            return body  # On ne fait rien s'il n'y a pas de fichier
+
+        # On prépare la liste des nouveaux fichiers pour ce chat_id
+        if self.chat_id not in self.latest_files_by_chat:
+            self.latest_files_by_chat[self.chat_id] = []
+
+        new_files = []
+        for file_data in files:
+            file_info = file_data.get("file", {})
+            file_id = file_info.get("id")
+            original_filename = file_info.get("filename")
+
+            logger.info(
+                f"🔎 Traitement du fichier → file_id={file_id}, filename={original_filename}"
+            )
+            if not file_id or not original_filename:
+                logger.error(f"🚨 ERREUR: Problème avec ce fichier: {file_data}")
+                continue
+
+            if not UUID_REGEX.match(f"{file_id}_{original_filename}"):
+                # On saute si ça ne matche pas le pattern ou si info incomplète
+                logger.warning(
+                    f"Fichier ignoré (pas d'UUID valide) : {original_filename}"
+                )
+                continue
+            # 🛠️ Générer le nouveau nom du fichier (avec UUID si pas déjà présent)
+            # Ici, on vérifie si le filename est déjà de la forme UUID_filename
+            if not re.match(
+                r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_.+",
+                original_filename,
+            ):
+                new_filename = f"{file_id}_{original_filename}"
+            else:
+                # On suppose que le fichier a déjà un UUID
+                new_filename = original_filename
+
+            source_path = os.path.join(self.upload_directory, original_filename)
+            new_path = os.path.join(self.upload_directory, new_filename)
+
+            if os.path.exists(source_path):
+                # On renomme localement dans uploads/
+                os.rename(source_path, new_path)
+                logger.debug(f"✅ Fichier renommé: {source_path} → {new_path}")
+            else:
+                logger.debug(
+                    f"⚠️ Fichier source introuvable: {source_path} (peut-être non encore uploadé)"
+                )
+
+            # adding=False -> on va le copier plus tard dans detect_and_process_changes
+            new_files.append(
+                {"file_id": file_id, "filename": new_filename, "adding": False}
+            )
+
+        self.latest_files_by_chat[self.chat_id] = new_files
+        logger.info(
+            f"📂 Fichiers du dernier message: {self.latest_files_by_chat[self.chat_id]}"
+        )
+
+        # Lance la détection et le traitement
+        self.detect_and_process_changes()
         return body
 
     async def on_shutdown(self):
-        print("Server shutting down...")
+        pass
 
     def verify_and_reflect(self, context, python_results):
         logger.info("Verifying and reflecting on execution results...")
@@ -332,7 +455,6 @@ class Pipeline:
     def llm_data_interpreter(self, question, schema, initial_context):
         logger.info(f"Starting LLM data interpreter with question: {question}")
         context = initial_context
-        schema = get_schema(duckdb.connect(os.getenv("DB_FILE")))
         self.history = add_message(self.history, "user", question)
         context["sql_results"] = context.get("sql_results", [])
         context["python_results"] = context.get("python_results", [])
@@ -353,6 +475,7 @@ class Pipeline:
                     self.database_model,
                     self.reasoning_model,
                     python_code,
+                    self.custom_db_path,
                 )
             )
             logger.debug(f"Results: {context['sql_results']}, {self.python_results}")
@@ -382,11 +505,17 @@ class Pipeline:
         body: dict = None,
     ) -> typing.Union[str, typing.Generator, typing.Iterator]:
         try:
-            schema = get_schema(duckdb.connect(os.getenv("DB_FILE")))
+            save_directory = os.path.join(self.shared_data_directory, self.chat_id)
+            if not os.path.exists(save_directory):
+                os.makedirs(save_directory, exist_ok=True)
+            logger.debug(f"chat_id available in pipe: {self.chat_id}")
+            self.custom_db_path = os.getenv("DB_FILE")
+            self.custom_db_path = self.custom_db_path.replace("id", str(self.chat_id))
+            schema = get_schema(duckdb.connect(self.custom_db_path))
             initial_context = {"question": user_message}
             return self.llm_data_interpreter(user_message, schema, initial_context)
         except Exception as e:
-            print(f"Error executing request: {str(e)}")
+            logger.error(f"Error executing request: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
 
 

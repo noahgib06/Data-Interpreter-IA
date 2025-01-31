@@ -286,6 +286,7 @@ def generate_tools_with_llm(
     database_model,
     reasoning_model,
     python_code,
+    custom_sql_path=None,
 ):
     """
     Génère les outils nécessaires en fonction du plan.
@@ -319,7 +320,10 @@ def generate_tools_with_llm(
                     logger.info(f"Requête SQL ajustée : {sql_query}")
 
                     # Exécuter la requête ajustée
-                    sql_results = execute_sql_query(sql_query)
+                    if custom_sql_path is not None:
+                        sql_results = execute_sql_query(sql_query, custom_sql_path)
+                    else:
+                        sql_results = execute_sql_query(sql_query)
                     logger.info(f"Résultats de la requête SQL : {sql_results}")
 
                     if "sql_results" not in context:

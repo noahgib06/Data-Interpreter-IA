@@ -23,7 +23,8 @@ services:
       - ./data:/app/data
       - ./db:/app/db
       - ./src:/app/src
-      - shared_data:/app/shared_data
+      - shared_data:/srv
+      - ./data:/srv/data
       - ./.env:/app/.env
       - ./Logs:/app/Logs
       - openwebui-data:/app/backend/data
@@ -40,7 +41,7 @@ services:
     container_name: filebrowser
     volumes:
       - shared_data:/srv
-      - ./data:/srv/data
+      - ./data/:/srv/data
     ports:
       - "8080:80"
     environment:

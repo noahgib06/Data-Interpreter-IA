@@ -1,5 +1,15 @@
 # Récapitulatif des versions du Data Interpreter
 
+## [1.3.1] - 2025-01-31
+## Modifié
+- Correction du Filebrowser afin d'avoir de nouveau accès aux fichiers générés par le data interpreter.
+- Correction du processus de gestion de base de donnée afin de ne pas créer des tables qui existent déja.
+- Suppression de la possibilité pour openwebui de supprimer un document de la base de donnée à la main. 
+
+## Ajouté
+- Mise en place d'un système de collection afin de pouvoir créer des sessions de chat vierge à volonté dans openwebui avec le data interpreter 
+- Mise en place d'une gestion d'historique des documents pour chaque session chat créée.
+
 ## [1.2.1] - 2025-01-30
 ### Modifié
 - Corriger l'enchainement d'execution des requetes sql générées par le LLM de planification.

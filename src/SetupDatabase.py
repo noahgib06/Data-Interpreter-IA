@@ -20,6 +20,10 @@ LOG_LEVEL_ENV = os.getenv(
     "LOG_LEVEL_SetupDatabase"
 )  # Changez pour INFO, EXCEPTION, DEBUG, ERROR. si nécessaire
 
+UUID_REGEX = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_"
+)
+
 # Mappage des niveaux de log
 LOG_LEVEL_MAP = {
     "DEBUG": logging.DEBUG,
@@ -72,16 +76,34 @@ def remove_database_file():
 
 
 def clean_column_name(column_name):
-    if pd.isna(column_name):
-        return "unnamed"
-    column_name = unidecode(column_name)
+    """
+    Nettoie le nom d'une colonne pour être compatible avec DuckDB.
+    """
+    if pd.isna(column_name) or column_name.strip() == "":
+        return "unnamed_column"
+    column_name = unidecode(column_name)  # Supprime les accents
     column_name = column_name.replace("'", "_")
-    cleaned_name = re.sub(r"[^a-zA-Z0-9_]", "_", column_name).lower()
-    logger.debug(f"Nettoyage du nom de colonne '{column_name}' -> '{cleaned_name}'")
-    return cleaned_name
+    column_name = re.sub(r"[^a-zA-Z0-9_]", "_", column_name).lower()
+    # Supprimer les UUID éventuels du nom
+    column_name = re.sub(
+        r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
+        "",
+        column_name,
+    )
+    column_name = re.sub(r"_+", "_", column_name).strip("_")
+    # Ajouter un préfixe si le nom commence par un chiffre
+    if column_name and column_name[0].isdigit():
+        column_name = "col_" + column_name
+    return column_name
 
 
-def prepare_database(filepaths=None):
+def prepare_database(filepaths=None, collection_id=None):
+    """
+    Parcourt la liste des fichiers, en extrait les dataframes,
+    et crée les tables dans DuckDB sans recréer celles déjà identiques.
+    """
+    if not filepaths:
+        return
 
     all_filepaths = []
     for path in filepaths:
@@ -92,37 +114,48 @@ def prepare_database(filepaths=None):
         else:
             all_filepaths.append(path)
 
-    conn = duckdb.connect(os.getenv("DB_FILE"))
+    if collection_id is not None:
+        path = os.getenv("DB_FILE")
+        path = path.replace("id", str(collection_id))
+        conn = duckdb.connect(path)
+    else:
+        conn = duckdb.connect(os.getenv("DB_FILE"))
     logger.info(f"Fichiers à traiter : {all_filepaths}")
-    if all_filepaths:
-        for filepath in all_filepaths:
-            logger.info(f"Traitement du fichier : {filepath}")
-            try:
-                data = load_file_data(filepath)
-                for sheet_name, df in data.items():
-                    table_name = generate_table_name(filepath, sheet_name)
-                    logger.debug(
-                        f"Création de la table '{table_name}' pour la feuille '{sheet_name}'..."
-                    )
-                    create_table_from_dataframe(conn, df, table_name)
-                    handle_nested_data(conn, df, table_name)
-            except ValueError as e:
-                logger.error(f"Erreur de format pour le fichier '{filepath}': {e}")
-            except Exception as e:
-                logger.error(
-                    f"Erreur inattendue lors du traitement du fichier '{filepath}': {e}"
+
+    for filepath in all_filepaths:
+        logger.info(f"Traitement du fichier : {filepath}")
+        try:
+            data = load_file_data(filepath)
+            for sheet_name, df in data.items():
+                table_name = generate_table_name(filepath, sheet_name)
+                logger.debug(
+                    f"Création éventuelle de la table '{table_name}' pour la feuille '{sheet_name}'..."
                 )
-    return conn
+                create_table_from_dataframe(conn, df, table_name)
+                handle_nested_data(conn, df, table_name)
+        except ValueError as e:
+            logger.error(f"Erreur de format pour le fichier '{filepath}': {e}")
+        except Exception as e:
+            logger.error(
+                f"Erreur inattendue lors du traitement du fichier '{filepath}': {e}"
+            )
+
+    conn.close()
 
 
 def load_file_data(filepath):
+    """
+    Charge les données selon l'extension du fichier.
+    """
     logger.info(f"Chargement des données pour le fichier : {filepath}")
     if filepath.endswith(".xls"):
         return pd.read_excel(filepath, sheet_name=None, engine="xlrd")
     elif filepath.endswith(".xlsx") or filepath.endswith(".xlsm"):
         return pd.read_excel(filepath, sheet_name=None, engine="openpyxl")
     elif filepath.endswith(".csv"):
-        return {"sheet1": pd.read_csv(filepath, sep=";", encoding="utf-8")}
+        return {
+            "sheet1": pd.read_csv(filepath, sep=";", encoding="utf-8", engine="python")
+        }
     elif filepath.endswith(".json"):
         with open(filepath, "r", encoding="utf-8") as f:
             json_data = json.load(f)
@@ -164,41 +197,126 @@ def process_python_file(filepath):
 
 
 def generate_table_name(filepath, sheet_name):
-    base_name = re.sub(
-        r"[^a-zA-Z0-9_]", "_", os.path.splitext(os.path.basename(filepath))[0]
-    ).lower()
-    table_name = f"{base_name}_{clean_column_name(sheet_name)}"
-    logger.debug(f"Génération du nom de table : {table_name}")
+    """
+    Génère un nom de table SANS UUID, même si le fichier se nomme
+    {uuid}_trucchose.pdf.
+    """
+    base = os.path.splitext(os.path.basename(filepath))[0]
+    # Supprimer l'UUID éventuel au début (ex: "8a2da82f-1cd5-42b6-91bb-d0c2282f57d0_...")
+    base = re.sub(UUID_REGEX, "", base)  # retire l'UUID + underscore
+    base = re.sub(r"[^A-Za-z0-9_]+", "_", base).strip("_").lower()
+
+    sheet = re.sub(r"[^A-Za-z0-9_]+", "_", sheet_name).strip("_").lower()
+
+    table_name = f"{base}_{sheet}"
+    # on évite que ça commence par un chiffre
+    if table_name and table_name[0].isdigit():
+        table_name = "t_" + table_name
+
+    logger.debug(f"Nom de table final: {table_name}")
     return table_name
 
 
+def table_exists_with_same_schema(conn, df, table_name):
+    """
+    Vérifie si la table `table_name` existe déjà dans la base
+    ET si son schéma correspond exactement aux colonnes de `df`.
+    S'il y a correspondance parfaite, on considère que c'est un doublon.
+    """
+    # Récupérer la liste des tables existantes
+    tables = [x[0] for x in conn.execute("SHOW TABLES").fetchall()]
+    if table_name not in tables:
+        return False  # La table n'existe pas encore
+
+    # Décrire la table existante
+    # duckdb DESC <table> renvoie un tableau du type (column_name, column_type, null, key, default, extra)
+    schema_info = conn.execute(f"DESCRIBE {table_name}").fetchall()
+
+    # Extraire seulement les noms de colonnes et types DuckDB
+    existing_cols = [(row[0].lower(), row[1].lower()) for row in schema_info]
+
+    # Construire la liste (colName, duckdbType) attendue
+    desired_cols = []
+    for col in df.columns:
+        colname_clean = clean_column_name(col)
+        coltype = map_dtype_to_duckdb_type(df[col].dtype, df[col])
+        desired_cols.append((colname_clean.lower(), coltype.lower()))
+
+    # Comparaison stricte (même nombre de colonnes, mêmes noms, mêmes types, dans le même ordre)
+    if len(existing_cols) != len(desired_cols):
+        return False
+
+    return existing_cols == desired_cols
+
+
 def create_table_from_dataframe(conn, df, table_name):
-    logger.info(f"Création de la table '{table_name}' dans DuckDB...")
+    logger.info(f"Création éventuelle de la table '{table_name}' dans DuckDB...")
+
+    # Vérifier si la table existe déjà à l'identique
+    if table_exists_with_same_schema(conn, df, table_name):
+        logger.info(
+            f"Table '{table_name}' existe déjà avec le même schéma, pas de création."
+        )
+        return  # On ne recrée pas
+
+    # Sinon, on crée la table (ou on la recrée si le schéma a changé)
+    # Pour éviter un conflit, on peut DROP la table s'il existe un "table_name" au schéma différent
+    tables = [x[0] for x in conn.execute("SHOW TABLES").fetchall()]
+    if table_name in tables:
+        logger.info(
+            f"Table '{table_name}' existe déjà mais le schéma diffère, on la DROP avant recréation."
+        )
+        conn.execute(f"DROP TABLE {table_name}")
+
+    # Prépare la requête de CREATE TABLE
     column_definitions = []
     for column_name, dtype in df.dtypes.items():
+        col_clean = clean_column_name(column_name)
         column_type = map_dtype_to_duckdb_type(dtype, df[column_name])
-        column_definitions.append(f'"{clean_column_name(column_name)}" {column_type}')
+        column_definitions.append(f'"{col_clean}" {column_type}')
 
     column_definitions_str = ", ".join(column_definitions)
-    create_table_query = (
-        f"CREATE TABLE IF NOT EXISTS {table_name} ({column_definitions_str})"
-    )
-    conn.execute(create_table_query)
+    create_table_query = f"CREATE TABLE {table_name} ({column_definitions_str})"
 
-    chunks = np.array_split(df, np.ceil(len(df) / 500))
-    for chunk in chunks:
-        conn.register("temp_chunk", chunk)
-        conn.execute(f"INSERT INTO {table_name} SELECT * FROM temp_chunk")
-    logger.info(f"Table '{table_name}' créée et données insérées.")
+    try:
+        conn.execute(create_table_query)
+        logger.info(f"Table '{table_name}' créée avec succès.")
+    except Exception as e:
+        logger.error(f"Erreur SQL lors de la création de la table {table_name}: {e}")
+        return
+
+    # Insertion par paquets
+    try:
+        if not df.empty:
+            batch_size = max(1, len(df) // 500)  # découpage en ~500 lignes par lot
+            for chunk in np.array_split(df, batch_size):
+                conn.register("temp_chunk", chunk)
+                conn.execute(f"INSERT INTO {table_name} SELECT * FROM temp_chunk")
+        logger.info(f"Données insérées dans '{table_name}' avec succès.")
+    except Exception as e:
+        logger.error(f"Erreur SQL lors de l'insertion dans {table_name}: {e}")
+    logger.info(f"Table '{table_name}' opération terminée.")
 
 
 def handle_nested_data(conn, df, base_table_name):
+    """
+    Gère les colonnes contenant des données imbriquées en créant des tables supplémentaires.
+    """
     logger.info(f"Gestion des données imbriquées pour la table '{base_table_name}'...")
+
+    # Supprime un éventuel UUID
+    base_table_name = re.sub(
+        r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
+        "",
+        base_table_name,
+    ).strip("_")
+
     for column in df.columns:
+        # On check si la colonne contient parfois dict ou list
         if df[column].apply(lambda x: isinstance(x, (list, dict))).any():
             logger.debug(f"Colonne imbriquée détectée : {column}")
             nested_entries = []
-            for index, row in df.iterrows():
+            for _, row in df.iterrows():
                 value = row[column]
                 if isinstance(value, list):
                     nested_entries.extend(value)

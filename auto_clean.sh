@@ -25,6 +25,6 @@ autoflake --remove-all-unused-imports --in-place --recursive .
 
 # Analyse et correction des erreurs avec Ruff
 echo "🔍 Analyse et correction avec Ruff..."
-ruff check . --fix --select F403,F405,F811,F841,E501
+#ruff check . --fix --select F403,F405,F811,F841,E501
 
 echo "✅ Tout est nettoyé et formaté ! 🎉"
