@@ -59,10 +59,11 @@ def setup_logger(
 logger = setup_logger()
 
 
-def execute_sql_query(query, db_path=os.getenv("DB_FILE")):
+def execute_sql_query(query, db_path):
     """
     Exécute une requête SQL sur une base DuckDB et retourne les résultats formatés.
     """
+    print("voila le path vers l'historique : ", db_path)
     logger.info(f"Début de l'exécution de la requête SQL : {query}")
     try:
         connection = duckdb.connect(db_path)

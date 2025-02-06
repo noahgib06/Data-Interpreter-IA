@@ -84,16 +84,6 @@ def command_r_plus_plan(question, schema, contextualisation_model, history):
 
     logger.info(f"Description du schéma générée : {schema_description}")
 
-    try:
-        # Transformez `history` dans le format attendu par le modèle
-        context_for_model = [
-            entry["content"] for entry in history if "content" in entry
-        ]
-        logger.debug(f"Contexte transformé pour le modèle : {context_for_model}")
-    except Exception as e:
-        logger.error(f"Erreur lors de la transformation du contexte : {e}")
-        raise ValueError("Le format du contexte est invalide.") from e
-
     prompt = (
         f'La demande est : "{question}"\n\n'
         "**Instructions pour générer le plan d'action :**\n"
@@ -297,6 +287,7 @@ def generate_tools_with_llm(
     results = []
 
     if "SQL" in plan:
+        print("voila le path vers l'historique : ", custom_sql_path)
         logger.info("Traitement des requêtes SQL dans le plan.")
         try:
             sql_queries = extract_sql_from_plan(plan)

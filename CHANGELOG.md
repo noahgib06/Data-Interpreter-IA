@@ -1,5 +1,12 @@
 # Récapitulatif des versions du Data Interpreter
 
+## [1.3.2] - 2025-01-31
+## Modifié
+- Correction de la gestion de path custom pour l'appel de db
+
+## Ajouté
+- Mise en place d'une gestion d'historique sous forme de db.
+
 ## [1.3.1] - 2025-01-31
 ## Modifié
 - Correction du Filebrowser afin d'avoir de nouveau accès aux fichiers générés par le data interpreter.

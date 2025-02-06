@@ -2,6 +2,7 @@ import logging
 import os
 from logging.handlers import RotatingFileHandler
 
+import duckdb
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -61,51 +62,100 @@ def setup_logger(
 logger = setup_logger()
 
 
-def add_message(history, role, content):
+def add_message(path, role, content):
     """
-    Ajoute un message à l'historique avec validation et gestion des caractères spéciaux.
-
-    :param history: Liste contenant l'historique des messages.
-    :param role: Rôle de l'auteur du message ('user', 'assistant', etc.).
-    :param content: Contenu du message.
-    :return: Historique mis à jour.
+    Ajoute un message dans l'historique d'une DB spécifique.
     """
-    logger.info("Tentative d'ajout d'un message à l'historique.")
+    conn = duckdb.connect(path)
 
-    # Validation des arguments
-    if not isinstance(history, list):
-        logger.error(
-            "Type invalide pour 'history' : attendu list, obtenu %s.",
-            type(history).__name__,
+    # Vérifie si la table existe (sinon on la crée)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS chat_history (
+            id INTEGER PRIMARY KEY,  -- ✅ Supprimé AUTOINCREMENT
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-        raise ValueError("L'historique doit être une liste.")
+    """
+    )
 
-    if not isinstance(role, str) or not role.strip():
-        logger.error("Rôle invalide : '%s'.", role)
-        raise ValueError("Le rôle doit être une chaîne de caractères non vide.")
+    # Insère le message avec une gestion auto de l'ID
+    conn.execute(
+        """
+        INSERT INTO chat_history (id, role, content) 
+        SELECT COALESCE(MAX(id), 0) + 1, ?, ? FROM chat_history
+    """,
+        (role, content),
+    )
 
-    if not isinstance(content, str):
-        logger.error(
-            "Contenu invalide : attendu str, obtenu %s.", type(content).__name__
-        )
-        raise ValueError("Le contenu doit être une chaîne de caractères.")
+    conn.close()
 
-    # Normalisation et gestion des caractères spéciaux
-    try:
-        logger.debug("Validation et nettoyage du contenu.")
-        content_cleaned = (
-            content.strip()
-        )  # Retire les espaces en trop au début et à la fin
-    except Exception as e:
-        logger.exception("Erreur lors du nettoyage du contenu : %s", e)
-        raise ValueError("Impossible de traiter le contenu fourni.")
 
-    # Ajout du message à l'historique
-    message = {"role": role, "content": content_cleaned}
-    history.append(message)
-    logger.info("Message ajouté avec succès : %s", message)
+def get_history(path):
+    """
+    Récupère l'historique des conversations d'une base DuckDB spécifique.
+    """
+    conn = duckdb.connect(path)
 
-    # Debugging avancé pour inspecter l'historique actuel
-    logger.debug("État actuel de l'historique : %s", history)
+    # Vérifie si la table existe pour éviter une erreur
+    result = conn.execute(
+        """
+        SELECT COUNT(*) FROM information_schema.tables 
+        WHERE table_name = 'chat_history'
+    """
+    ).fetchone()
 
+    if result[0] == 0:
+        conn.close()
+        return []  # Retourne un historique vide si la table n'existe pas encore
+
+    # Récupère l'historique trié par date
+    history = conn.execute(
+        """
+        SELECT role, content, timestamp 
+        FROM chat_history 
+        ORDER BY timestamp ASC
+    """
+    ).fetchall()
+
+    conn.close()
     return history
+
+
+def setup_history_database(path):
+    """
+    Initialise la base de données DuckDB et crée la table d'historique des conversations si elle n'existe pas.
+    """
+    conn = duckdb.connect(path)
+
+    # Vérifier si la table existe déjà
+    table_exists = (
+        conn.execute(
+            """
+        SELECT COUNT(*) FROM information_schema.tables 
+        WHERE table_name = 'chat_history'
+    """
+        ).fetchone()[0]
+        > 0
+    )
+
+    if table_exists:
+        print(f"✅ La base de données `{path}` existe déjà avec `chat_history`.")
+        conn.close()
+        return  # Sortir immédiatement
+
+    # Si la table n'existe pas, la créer
+    conn.execute(
+        """
+        CREATE TABLE chat_history (
+            id INTEGER PRIMARY KEY,  -- ✅ Supprimé AUTOINCREMENT
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """
+    )
+
+    conn.close()
+    print(f"✅ Base `{path}` initialisée avec la table `chat_history`.")

@@ -17,7 +17,7 @@ from langchain_ollama import OllamaLLM
 from pydantic import BaseModel
 from urllib3.exceptions import NewConnectionError
 
-from history_func import add_message
+from history_func import add_message, get_history
 from LlmGeneration import (command_r_plus_plan,
                            generate_final_response_with_llama,
                            generate_tools_with_llm)
@@ -49,8 +49,8 @@ def setup_logger(log_file, max_size=10 * 1024 * 1024, backup_count=5):
     """
     Set up a logger with rotating file and console handlers.
     """
-    if not os.path.exists("Logs"):
-        os.makedirs("Logs", exist_ok=True)
+    if not os.path.exists("failed/Logs"):
+        os.makedirs("failed/Logs", exist_ok=True)
 
     logger = logging.getLogger("main_logger")
     logger.setLevel(LOG_LEVEL_MAP.get(LOG_LEVEL_ENV, logging.INFO))
@@ -118,6 +118,7 @@ class Pipeline:
         self.history = []
         self.chat_id = None
         self.custom_db_path = None
+        self.custom_history_path = None
         self.latest_files_by_chat = {}
         self.valves = self.Valves(
             LLAMAINDEX_OLLAMA_BASE_URL=os.getenv(
@@ -423,6 +424,12 @@ class Pipeline:
 
         # Lance la détection et le traitement
         self.detect_and_process_changes()
+
+        self.custom_history_path = os.getenv("HISTORY_DB_FILE")
+        self.custom_history_path = self.custom_history_path.replace(
+            "id", str(self.chat_id)
+        )
+
         return body
 
     async def on_shutdown(self):
@@ -455,9 +462,10 @@ class Pipeline:
     def llm_data_interpreter(self, question, schema, initial_context):
         logger.info(f"Starting LLM data interpreter with question: {question}")
         context = initial_context
-        self.history = add_message(self.history, "user", question)
+        self.history = add_message(self.custom_history_path, "user", question)
         context["sql_results"] = context.get("sql_results", [])
         context["python_results"] = context.get("python_results", [])
+        print(get_history(self.custom_history_path))
         while True:
             logger.debug("Generating plan...")
             self.python_results = None
@@ -494,7 +502,10 @@ class Pipeline:
             files_generated,
             self.history,
         )
-        self.history = add_message(self.history, "assistant", final_response)
+        self.history = add_message(
+            self.custom_history_path, "assistant", final_response
+        )
+        print(get_history(self.custom_history_path))
         return final_response
 
     def pipe(
@@ -511,6 +522,10 @@ class Pipeline:
             logger.debug(f"chat_id available in pipe: {self.chat_id}")
             self.custom_db_path = os.getenv("DB_FILE")
             self.custom_db_path = self.custom_db_path.replace("id", str(self.chat_id))
+            self.custom_history_path = os.getenv("HISTORY_DB_FILE")
+            self.custom_history_path = self.custom_history_path.replace(
+                "id", str(self.chat_id)
+            )
             schema = get_schema(duckdb.connect(self.custom_db_path))
             initial_context = {"question": user_message}
             return self.llm_data_interpreter(user_message, schema, initial_context)

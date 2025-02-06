@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from history_func import add_message
+from history_func import add_message, get_history, setup_history_database
 from LlmGeneration import (command_r_plus_plan,
                            generate_final_response_with_llama,
                            generate_tools_with_llm)
@@ -119,11 +119,10 @@ def llm_data_interpreter(question, schema, initial_context):
     context = initial_context
     global sql_results
     global python_results
-    global history
-    history = add_message(history, "user", question)
+    add_message(os.getenv("HISTORY_DB_FILE"), "user", question)
     context["sql_results"] = context.get("sql_results", [])
     context["python_results"] = context.get("python_results", [])
-
+    history = get_history(os.getenv("HISTORY_DB_FILE"))
     while True:
         logger.debug("Generating plan...")
         sql_results = None
@@ -141,6 +140,7 @@ def llm_data_interpreter(question, schema, initial_context):
             database_model,
             reasoning_model,
             python_code,
+            os.getenv("DB_FILE"),
         )
         logger.debug(f"Results: {context['sql_results']}, {python_results}")
         reflection = verify_and_reflect(context, python_results)
@@ -150,10 +150,11 @@ def llm_data_interpreter(question, schema, initial_context):
             logger.info("Execution process completed.")
             break
 
+    history = get_history(os.getenv("HISTORY_DB_FILE"))
     final_response = generate_final_response_with_llama(
         context, sql_results, python_results, reasoning_model, files_generated, history
     )
-    history = add_message(history, "assistant", final_response)
+    add_message(history, "assistant", final_response)
     return final_response
 
 
@@ -264,6 +265,7 @@ if __name__ == "__main__":
             remove_database_file()
         logger.info(f"Preparing database with files: {filepath}")
         prepare_database(filepath)
+        setup_history_database(os.getenv("HISTORY_DB_FILE"))
 
         database_model = OllamaLLM(model=DATABASE_MODEL)
         logger.info(f"Database model: {DATABASE_MODEL}")
