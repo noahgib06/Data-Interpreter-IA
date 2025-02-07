@@ -78,9 +78,6 @@ def execute_sql_query(query, db_path):
     except Exception as e:
         logger.error(f"Erreur lors de l'exécution de la requête SQL : {e}")
         return None
-    finally:
-        connection.close()
-        logger.info("Connexion à la base de données fermée.")
 
 
 def get_schema(con):

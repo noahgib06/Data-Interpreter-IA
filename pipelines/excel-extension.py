@@ -253,14 +253,10 @@ class Pipeline:
             file_id = file_data.get("file_id")
             filename = file_data.get("filename")
 
-            logger.info(
-                f"📝 Traitement du fichier : file_id={file_id}, filename={filename}"
-            )
+            logger.info(f"📝 Traitement du fichier : file_id={file_id}, filename={filename}")
 
             if file_id is None or filename is None:
-                logger.error(
-                    f"🚨 ERREUR: file_id ou filename est None ! Données: {file_data}"
-                )
+                logger.error(f"🚨 ERREUR: file_id ou filename est None ! Données: {file_data}")
                 continue  # On saute ce fichier corrompu
 
             # Si 'adding' est déjà True, on ne refait pas la copie
@@ -269,25 +265,24 @@ class Pipeline:
                 updated_files.append(file_data)
                 continue
 
-            # 🔥 Vérification du chemin source et destination
             source_path = os.path.join(self.upload_directory, filename)
             dest_path = os.path.join(chat_path, filename)
 
-            logger.info(
-                f"📥 Vérification de la copie depuis {source_path} vers {dest_path}"
-            )
+            logger.info(f"📥 Vérification de la copie depuis {source_path} vers {dest_path}")
 
-            # Copie du fichier si pas encore ajouté
-            if not file_data.get("adding", False):
+            # Nouvel ajout : vérifier si le fichier existe déjà dans le dossier de destination
+            if os.path.exists(dest_path):
+                logger.info(f"✅ Fichier déjà présent dans {dest_path}, on marque comme ajouté.")
+                file_data["adding"] = True
+            else:
+                # Copie du fichier si pas encore ajouté
                 if os.path.exists(source_path):
                     shutil.copy(source_path, dest_path)
-                    logging.info(f"✅ Fichier copié: {source_path} → {dest_path}")
+                    logger.info(f"✅ Fichier copié: {source_path} → {dest_path}")
                     file_data["adding"] = True  # Marquer comme ajouté
                     new_filepaths_to_db.append(dest_path)  # Ajouter pour traitement BD
                 else:
-                    logging.warning(
-                        f"⚠️ Fichier source introuvable: {source_path}, fichier non copié."
-                    )
+                    logger.warning(f"⚠️ Fichier source introuvable: {source_path}, fichier non copié.")
 
             updated_files.append(file_data)
 
