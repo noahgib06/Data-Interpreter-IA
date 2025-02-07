@@ -1,5 +1,12 @@
 # Récapitulatif des versions du Data Interpreter
 
+## [1.4.1] - 2025-02-06
+## Modifié
+- Correction de la gestion des fichiers en entrée afin de ne pas traiter de nouveau un fichier ayant déja été traité.
+
+## Ajouté
+- Mise en place d'un traitement par similarité afin d'éviter de refaire des recherches pour une question déja posé
+
 ## [1.3.2] - 2025-01-31
 ## Modifié
 - Correction de la gestion de path custom pour l'appel de db

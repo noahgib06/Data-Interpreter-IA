@@ -65,6 +65,23 @@ def setup_logger(
 logger = setup_logger()
 
 
+def summarize_model(history, contextualisation_model):
+    formatted_history = "\n".join(
+        f"{entry[0].capitalize()}: {entry[1]}" for entry in history
+    )
+    prompt = (
+        f"voici un historique de conversation :\n{formatted_history}\n\n"
+        "Résume cet historique en gardant uniquement les éléments essentiels pour répondre à une nouvelle question."
+    )
+
+    try:
+        summary = contextualisation_model.invoke(prompt)
+        return summary
+    except Exception as e:
+        logger.error(e)
+        return "Résumé non disponible."
+
+
 def command_r_plus_plan(question, schema, contextualisation_model, history):
     """
     Génère un plan d'action basé sur la question et le schéma fourni.
@@ -416,7 +433,7 @@ def generate_tools_with_llm(
 
 
 def generate_final_response_with_llama(
-    context, sql_results, python_results, reasoning_model, files_generated, history
+    context, python_results, reasoning_model, files_generated, history
 ):
     logger = logging.getLogger("action_plan_logger")
     logger.debug("Début de la fonction `generate_final_response_with_llama`.")
@@ -438,31 +455,19 @@ def generate_final_response_with_llama(
         f"Question : \"{context['question']}\"\n"
         f"Résultats SQL : {context['sql_results']}\n"
         f"Résultats Python : {python_results}\n\n"
+        f'Historique : "{history}"\n'
         f"{files_section}\n\n"
         "**Réponse finale :**\n"
         "- Résumez le contenu de manière concise en expliquant de quoi traite le document ou en répondant précisément à la demande.\n"
         "- Ne faites pas de raisonnement intermédiaire ni d'ajouts spéculatifs. Utilisez uniquement les informations fournies dans le contexte final pour formuler la réponse.\n\n"
+        "- Si un historique est présent et non null, tu peux collecter des éléments réponse à l'intérieur pour répondre à la question initiale. Dans le cas contraire, tu t'appuies simplement sur les résultats SQL et Python.\n"
         "**Directives spécifiques :**\n"
         "1. Si des fichiers ont été générés (mentionnés ci-dessus), expliquez brièvement leur contenu et leur utilité en lien avec la demande.\n"
         "2. Si la réponse contient des résultats chiffrés, assurez-vous qu'ils sont bien contextualisés pour une compréhension immédiate.\n"
         "3. Ne donnez aucune explication technique non demandée par la question initiale. Limitez-vous à une explication compréhensible pour l'utilisateur final.\n"
         "4. Mentionnez les liens des fichiers créés (listés ci-dessus) de manière explicite dans la réponse.\n"
         "5. Répond toujours dans la meme langue que celle utilisée pour la question initiale.\n"
-    )
-    prompt2 = (
-        f"Final context:\n\n"
-        f"Question: \"{context['question']}\"\n"
-        f"SQL Results: {sql_results}\n"
-        f"Python Results: {python_results}\n\n"
-        f"{files_section}\n\n"
-        "**Final Answer:**\n"
-        "- Summarize the content concisely by explaining what the document is about or by precisely answering the request.\n"
-        "- Avoid intermediate reasoning or speculative additions. Use only the information provided in the final context to formulate the response.\n\n"
-        "**Specific Guidelines:**\n"
-        "1. If files have been generated (mentioned above), briefly explain their content and relevance to the request.\n"
-        "2. If the response includes numerical results, ensure they are well-contextualized for immediate understanding.\n"
-        "3. Do not provide any technical explanations not requested by the initial question. Focus on delivering an explanation understandable to the end user.\n"
-        "4. Explicitly mention the links to the created files (listed above) in the response."
+        "6. Si un historique est présent et non null, tu peux t'en servir pour répondre à la question initiale.\n"
     )
 
     logger.debug("Prompt construit pour le modèle de raisonnement.")

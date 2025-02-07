@@ -17,7 +17,9 @@ from langchain_ollama import OllamaLLM
 from pydantic import BaseModel
 from urllib3.exceptions import NewConnectionError
 
-from history_func import add_message, get_history
+from history_func import (add_conversation_with_embedding,
+                          retrieve_similar_conversations,
+                          setup_history_database)
 from LlmGeneration import (command_r_plus_plan,
                            generate_final_response_with_llama,
                            generate_tools_with_llm)
@@ -370,6 +372,9 @@ class Pipeline:
         if self.chat_id not in self.latest_files_by_chat:
             self.latest_files_by_chat[self.chat_id] = []
 
+        existing_files = self.latest_files_by_chat.get(self.chat_id, [])
+        existing_filenames = {fichier["filename"] for fichier in existing_files}
+
         new_files = []
         for file_data in files:
             file_info = file_data.get("file", {})
@@ -400,6 +405,12 @@ class Pipeline:
                 # On suppose que le fichier a déjà un UUID
                 new_filename = original_filename
 
+            if new_filename in existing_filenames:
+                logger.debug(
+                    f"Le fichier {new_filename} est déjà présent, on conserve son état."
+                )
+                continue
+
             source_path = os.path.join(self.upload_directory, original_filename)
             new_path = os.path.join(self.upload_directory, new_filename)
 
@@ -417,7 +428,9 @@ class Pipeline:
                 {"file_id": file_id, "filename": new_filename, "adding": False}
             )
 
-        self.latest_files_by_chat[self.chat_id] = new_files
+            existing_filenames.add(new_filename)
+
+        self.latest_files_by_chat[self.chat_id] = existing_files + new_files
         logger.info(
             f"📂 Fichiers du dernier message: {self.latest_files_by_chat[self.chat_id]}"
         )
@@ -460,19 +473,58 @@ class Pipeline:
         return "Continuer"
 
     def llm_data_interpreter(self, question, schema, initial_context):
+        setup_history_database(self.custom_history_path)
         logger.info(f"Starting LLM data interpreter with question: {question}")
+
         context = initial_context
-        self.history = add_message(self.custom_history_path, "user", question)
+
+        # 🔹 Rechercher les messages similaires
+        similar_messages = retrieve_similar_conversations(
+            question, self.custom_history_path
+        )
+
+        # 🔹 Ajouter les résultats SQL et Python initiaux
         context["sql_results"] = context.get("sql_results", [])
         context["python_results"] = context.get("python_results", [])
-        print(get_history(self.custom_history_path))
+
+        # 🔹 Construire un résumé des messages trouvés
+        if similar_messages:
+            history_summary = "\n".join(
+                [
+                    f"User: {conv['question']}\nAssistant: {conv['response']}"
+                    for conv in similar_messages
+                ]
+            )
+            logger.debug(f"🔍 Historique pertinent trouvé : \n{history_summary}")
+            # 🔹 Générer la réponse finale
+            final_response = generate_final_response_with_llama(
+                context,
+                None,
+                self.reasoning_model,
+                None,
+                history_summary,  # Utilise le résumé de l'historique
+            )
+            add_conversation_with_embedding(
+                self.custom_history_path, question, final_response
+            )
+
+            return final_response
+
+        history_summary = ""
+
+        # 🔹 Ajouter l'historique résumé au contexte
+        context["history_summary"] = history_summary
+
         while True:
-            logger.debug("Generating plan...")
+            logger.debug("🔄 Génération du plan...")
             self.python_results = None
             self.sql_results = None
+
+            # 🔹 Utiliser history_summary au lieu de self.history
             plan, python_code = command_r_plus_plan(
-                question, schema, self.contextualisation_model, self.history
+                question, schema, self.contextualisation_model, history_summary
             )
+
             context, self.python_results, self.sql_results, files_generated = (
                 generate_tools_with_llm(
                     plan,
@@ -486,26 +538,31 @@ class Pipeline:
                     self.custom_db_path,
                 )
             )
-            logger.debug(f"Results: {context['sql_results']}, {self.python_results}")
+
+            logger.debug(
+                f"📊 Résultats : {context['sql_results']}, {self.python_results}"
+            )
+
             reflection = self.verify_and_reflect(context, self.python_results)
-            logger.debug(f"Reflection result: {reflection}")
+            logger.debug(f"🔁 Résultat de la réflexion : {reflection}")
 
             if "Terminé" in reflection:
-                logger.info("Execution process completed.")
+                logger.info("✅ Exécution terminée.")
                 break
-            break
+
+        # 🔹 Générer la réponse finale
         final_response = generate_final_response_with_llama(
             context,
-            self.sql_results,
             self.python_results,
             self.reasoning_model,
             files_generated,
-            self.history,
+            None,  # Utilise le résumé de l'historique
         )
-        self.history = add_message(
-            self.custom_history_path, "assistant", final_response
+
+        add_conversation_with_embedding(
+            self.custom_history_path, question, final_response
         )
-        print(get_history(self.custom_history_path))
+
         return final_response
 
     def pipe(
