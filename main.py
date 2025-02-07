@@ -13,7 +13,9 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from history_func import add_message, get_history, setup_history_database
+from history_func import (add_conversation_with_embedding,
+                          retrieve_similar_conversations,
+                          setup_history_database)
 from LlmGeneration import (command_r_plus_plan,
                            generate_final_response_with_llama,
                            generate_tools_with_llm)
@@ -119,16 +121,42 @@ def llm_data_interpreter(question, schema, initial_context):
     context = initial_context
     global sql_results
     global python_results
-    add_message(os.getenv("HISTORY_DB_FILE"), "user", question)
+    similar_messages = retrieve_similar_conversations(
+        question, os.getenv("HISTORY_DB_FILE")
+    )
     context["sql_results"] = context.get("sql_results", [])
     context["python_results"] = context.get("python_results", [])
-    history = get_history(os.getenv("HISTORY_DB_FILE"))
+    if similar_messages:
+        history_summary = "\n".join(
+            [
+                f"User: {conv['question']}\nAssistant: {conv['response']}"
+                for conv in similar_messages
+            ]
+        )
+        logger.debug(f"🔍 Historique pertinent trouvé : \n{history_summary}")
+        # 🔹 Générer la réponse finale
+        final_response = generate_final_response_with_llama(
+            context,
+            None,
+            reasoning_model,
+            None,
+            history_summary,  # Utilise le résumé de l'historique
+        )
+        add_conversation_with_embedding(
+            os.getenv("HISTORY_DB_FILE"), question, final_response
+        )
+
+        return final_response
+
+    history_summary = ""
+    context["history_summary"] = history_summary
+
     while True:
         logger.debug("Generating plan...")
         sql_results = None
         python_results = None
         plan, python_code = command_r_plus_plan(
-            question, schema, contextualisation_model, history
+            question, schema, contextualisation_model, history_summary
         )
 
         context, python_results, sql_results, files_generated = generate_tools_with_llm(
@@ -150,11 +178,16 @@ def llm_data_interpreter(question, schema, initial_context):
             logger.info("Execution process completed.")
             break
 
-    history = get_history(os.getenv("HISTORY_DB_FILE"))
     final_response = generate_final_response_with_llama(
-        context, sql_results, python_results, reasoning_model, files_generated, history
+        context,
+        python_results,
+        reasoning_model,
+        files_generated,
+        None,
     )
-    add_message(history, "assistant", final_response)
+    add_conversation_with_embedding(
+        os.getenv("HISTORY_DB_FILE"), question, final_response
+    )
     return final_response
 
 
