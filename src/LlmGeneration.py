@@ -291,7 +291,7 @@ def generate_tools_with_llm(
     sql_results,
     python_results,
     database_model,
-    reasoning_model,
+    code_model,
     python_code,
     custom_sql_path=None,
 ):
@@ -414,7 +414,7 @@ def generate_tools_with_llm(
             logger.debug(
                 "Envoi du prompt pour génération de code Python au modèle de raisonnement python."
             )
-            python_tool = reasoning_model.invoke(prompt)
+            python_tool = code_model.invoke(prompt)
 
             context, python_results, files_generated = parse_and_execute_python_code(
                 python_tool, context, context["sql_results"]

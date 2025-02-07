@@ -102,9 +102,10 @@ def test_ollama_connection():
 class Pipeline:
     class Valves(BaseModel):
         LLAMAINDEX_OLLAMA_BASE_URL: str = "http://host.docker.internal:11434"
-        LLAMAINDEX_MODEL_NAME: str = os.getenv("REASONING_MODEL")
-        LLAMAINDEX_RAG_MODEL_NAME: str = os.getenv("DATABASE_MODEL")
-        LLAMAINDEX_CONTEXT_MODEL_NAME: str = os.getenv("CONTEXTUALISATION_MODEL")
+        LLAMAINDEX_REASONING_MODEL_NAME: str = os.getenv("REASONING_MODEL")
+        LLAMAINDEX_DB_MODEL_NAME: str = os.getenv("DATABASE_MODEL")
+        LLAMAINDEX_PLAN_MODEL_NAME: str = os.getenv("CONTEXTUALISATION_MODEL")
+        LLAMAINDEX_CODE_MODEL_NAME: str = os.getenv("CODE_MODEL")
         # FICHIERS: str = ""
 
     def __init__(self):
@@ -126,29 +127,36 @@ class Pipeline:
             LLAMAINDEX_OLLAMA_BASE_URL=os.getenv(
                 "LLAMAINDEX_OLLAMA_BASE_URL", "http://host.docker.internal:11434"
             ),
-            LLAMAINDEX_MODEL_NAME=os.getenv(
-                "LLAMAINDEX_MODEL_NAME", os.getenv("REASONING_MODEL")
+            LLAMAINDEX_REASONING_MODEL_NAME=os.getenv(
+                "LLAMAINDEX_REASONING_MODEL_NAME", os.getenv("REASONING_MODEL")
             ),
-            LLAMAINDEX_RAG_MODEL_NAME=os.getenv(
-                "LLAMAINDEX_RAG_MODEL_NAME", os.getenv("DATABASE_MODEL")
+            LLAMAINDEX_DB_MODEL_NAME=os.getenv(
+                "LLAMAINDEX_DB_MODEL_NAME", os.getenv("DATABASE_MODEL")
             ),
-            LLAMAINDEX_CONTEXT_MODEL_NAME=os.getenv(
-                "LLAMAINDEX_CONTEXT_MODEL_NAME", os.getenv("CONTEXTUALISATION_MODEL")
+            LLAMAINDEX_PLAN_MODEL_NAME=os.getenv(
+                "LLAMAINDEX_PLAN_MODEL_NAME", os.getenv("CONTEXTUALISATION_MODEL")
+            ),
+            LLAMAINDEX_CODE_MODEL_NAME=os.getenv(
+                "LLAMAINDEX_CODE_MODEL_NAME", os.getenv("CODE_MODEL")
             ),
         )
         logger.info(f"Valves initialized: {self.valves}")
 
         try:
             self.database_model = OllamaLLM(
-                model=self.valves.LLAMAINDEX_RAG_MODEL_NAME,
+                model=self.valves.LLAMAINDEX_DB_MODEL_NAME,
                 base_url="http://host.docker.internal:11434",
             )
             self.reasoning_model = OllamaLLM(
-                model=self.valves.LLAMAINDEX_MODEL_NAME,
+                model=self.valves.LLAMAINDEX_REASONING_MODEL_NAME,
                 base_url="http://host.docker.internal:11434",
             )
             self.contextualisation_model = OllamaLLM(
-                model=self.valves.LLAMAINDEX_CONTEXT_MODEL_NAME,
+                model=self.valves.LLAMAINDEX_PLAN_MODEL_NAME,
+                base_url="http://host.docker.internal:11434",
+            )
+            self.code_model = OllamaLLM(
+                model=self.valves.LLAMAINDEX_CODE_MODEL_NAME,
                 base_url="http://host.docker.internal:11434",
             )
             test_ollama_connection()
@@ -253,10 +261,14 @@ class Pipeline:
             file_id = file_data.get("file_id")
             filename = file_data.get("filename")
 
-            logger.info(f"📝 Traitement du fichier : file_id={file_id}, filename={filename}")
+            logger.info(
+                f"📝 Traitement du fichier : file_id={file_id}, filename={filename}"
+            )
 
             if file_id is None or filename is None:
-                logger.error(f"🚨 ERREUR: file_id ou filename est None ! Données: {file_data}")
+                logger.error(
+                    f"🚨 ERREUR: file_id ou filename est None ! Données: {file_data}"
+                )
                 continue  # On saute ce fichier corrompu
 
             # Si 'adding' est déjà True, on ne refait pas la copie
@@ -268,11 +280,15 @@ class Pipeline:
             source_path = os.path.join(self.upload_directory, filename)
             dest_path = os.path.join(chat_path, filename)
 
-            logger.info(f"📥 Vérification de la copie depuis {source_path} vers {dest_path}")
+            logger.info(
+                f"📥 Vérification de la copie depuis {source_path} vers {dest_path}"
+            )
 
             # Nouvel ajout : vérifier si le fichier existe déjà dans le dossier de destination
             if os.path.exists(dest_path):
-                logger.info(f"✅ Fichier déjà présent dans {dest_path}, on marque comme ajouté.")
+                logger.info(
+                    f"✅ Fichier déjà présent dans {dest_path}, on marque comme ajouté."
+                )
                 file_data["adding"] = True
             else:
                 # Copie du fichier si pas encore ajouté
@@ -282,7 +298,9 @@ class Pipeline:
                     file_data["adding"] = True  # Marquer comme ajouté
                     new_filepaths_to_db.append(dest_path)  # Ajouter pour traitement BD
                 else:
-                    logger.warning(f"⚠️ Fichier source introuvable: {source_path}, fichier non copié.")
+                    logger.warning(
+                        f"⚠️ Fichier source introuvable: {source_path}, fichier non copié."
+                    )
 
             updated_files.append(file_data)
 
@@ -323,21 +341,27 @@ class Pipeline:
         if not os.path.exists(path):
             os.makedirs(path, exist_ok=True)
 
-        if self.valves.LLAMAINDEX_RAG_MODEL_NAME is not None:
+        if self.valves.LLAMAINDEX_DB_MODEL_NAME is not None:
             self.database_model = OllamaLLM(
-                model=self.valves.LLAMAINDEX_RAG_MODEL_NAME,
+                model=self.valves.LLAMAINDEX_DB_MODEL_NAME,
                 base_url="http://host.docker.internal:11434",
             )
-        if self.valves.LLAMAINDEX_MODEL_NAME is not None:
+        if self.valves.LLAMAINDEX_REASONING_MODEL_NAME is not None:
             self.reasoning_model = OllamaLLM(
-                model=self.valves.LLAMAINDEX_MODEL_NAME,
+                model=self.valves.LLAMAINDEX_REASONING_MODEL_NAME,
                 base_url="http://host.docker.internal:11434",
             )
-        if self.valves.LLAMAINDEX_CONTEXT_MODEL_NAME is not None:
+        if self.valves.LLAMAINDEX_PLAN_MODEL_NAME is not None:
             self.contextualisation_model = OllamaLLM(
-                model=self.valves.LLAMAINDEX_CONTEXT_MODEL_NAME,
+                model=self.valves.LLAMAINDEX_PLAN_MODEL_NAME,
                 base_url="http://host.docker.internal:11434",
             )
+        if self.valves.LLAMAINDEX_CODE_MODEL_NAME is not None:
+            self.code_model = OllamaLLM(
+                model=self.valves.LLAMAINDEX_CODE_MODEL_NAME,
+                base_url="http://host.docker.internal:11434",
+            )
+
         logger.debug(f"📂 DEBUG: Body reçu dans inlet() → {body}")
 
         self.chat_id = body.get("metadata", {}).get("chat_id", "unknown_chat")
@@ -528,7 +552,7 @@ class Pipeline:
                     self.sql_results,
                     self.python_results,
                     self.database_model,
-                    self.reasoning_model,
+                    self.code_model,
                     python_code,
                     self.custom_db_path,
                 )

@@ -166,7 +166,7 @@ def llm_data_interpreter(question, schema, initial_context):
             sql_results,
             python_results,
             database_model,
-            reasoning_model,
+            code_model,
             python_code,
             os.getenv("DB_FILE"),
         )
@@ -306,6 +306,8 @@ if __name__ == "__main__":
         logger.info(f"Reasoning model: {REASONING_MODEL}")
         contextualisation_model = OllamaLLM(model=CONTEXTUALISATION_MODEL)
         logger.info(f"Contextualiser model: {CONTEXTUALISATION_MODEL}")
+        code_model = OllamaLLM(model=os.getenv("CODE_MODEL"))
+        logger.info(f"Code model: {os.getenv("CODE_MODEL")}")
 
         if not os.path.exists("output"):
             os.makedirs("output", exist_ok=True)

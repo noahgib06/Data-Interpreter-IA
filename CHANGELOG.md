@@ -6,6 +6,7 @@
 
 ## Ajouté
 - Mise en place d'un traitement par similarité afin d'éviter de refaire des recherches pour une question déja posé
+- Mise en place d'un modèle LLM spécial pour l'agent Python
 
 ## [1.3.2] - 2025-01-31
 ## Modifié
