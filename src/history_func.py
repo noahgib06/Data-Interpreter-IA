@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Configuration du logger global
+# Global logger configuration
 LOG_LEVEL_ENV = os.getenv("LOG_LEVEL_history_func")
 LOG_LEVEL_MAP = {
     "DEBUG": logging.DEBUG,
@@ -22,57 +22,76 @@ LOG_LEVEL_MAP = {
 }
 
 
-# Initialisation du logger
+# Logger setup function
 def setup_logger(
     log_file=os.getenv("LOG_FILE_history_func"),
     max_size=5 * 1024 * 1024,
     backup_count=3,
 ):
+    # Create log directory if it doesn't exist
     if not os.path.exists("../Logs"):
         os.makedirs("../Logs", exist_ok=True)
+
+    # Initialize logger
     logger = logging.getLogger("history_logger")
-    logger.setLevel(LOG_LEVEL_MAP.get(LOG_LEVEL_ENV))
+    logger.setLevel(LOG_LEVEL_MAP.get(LOG_LEVEL_ENV, logging.INFO))
+
+    # Define log message format
     formatter = logging.Formatter(
         "%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
     )
+
+    # Console handler setup
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(LOG_LEVEL_MAP.get(LOG_LEVEL_ENV))
+    console_handler.setLevel(LOG_LEVEL_MAP.get(LOG_LEVEL_ENV, logging.INFO))
     console_handler.setFormatter(formatter)
+
+    # File handler setup with rotation
     file_handler = RotatingFileHandler(
         log_file, maxBytes=max_size, backupCount=backup_count
     )
-    file_handler.setLevel(LOG_LEVEL_MAP.get(LOG_LEVEL_ENV))
+    file_handler.setLevel(LOG_LEVEL_MAP.get(LOG_LEVEL_ENV, logging.INFO))
     file_handler.setFormatter(formatter)
+
+    # Add handlers to logger
     logger.addHandler(console_handler)
     logger.addHandler(file_handler)
+
     return logger
 
 
+# Initialize global logger
 logger = setup_logger()
 
-OLLAMA_URL = "http://host.docker.internal:11434/api/embeddings"
+# Retrieve OLLAMA API URL from environment variables
+OLLAMA_URL = os.getenv("OLLAMA_URL")
 
 
-# 🔹 Fonction pour obtenir un embedding avec Ollama
+# Function to obtain embedding using Ollama API
 def get_embedding(text, model="all-minilm:33m"):
-    response = requests.post(
-        OLLAMA_URL,
-        json={"model": model, "prompt": text},
-        headers={"Content-Type": "application/json"},
-    )
-    if response.status_code == 200:
+    logger.info(f"Fetching embedding for text: {text}")
+    try:
+        response = requests.post(
+            OLLAMA_URL,
+            json={"model": model, "prompt": text},
+            headers={"Content-Type": "application/json"},
+        )
+        response.raise_for_status()
         return response.json()["embedding"]
-    else:
-        raise Exception(f"Erreur Ollama: {response.text}")
+    except requests.exceptions.RequestException as e:
+        logger.exception(f"Ollama API error: {e}")
+        raise
 
 
-# 🔹 Fonction pour calculer la similarité cosinus entre deux vecteurs
+# Function to calculate cosine similarity between two vectors
 def cosine_similarity(vec1, vec2):
+    logger.debug("Calculating cosine similarity between two vectors")
     return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
 
 
-# 🔹 Fonction pour configurer la base DuckDB et la table `chat_history`
+# Function to configure the DuckDB database and `chat_history` table
 def setup_history_database(path):
+    logger.info(f"Initializing database at: {path}")
     conn = duckdb.connect(path)
     conn.execute(
         """
@@ -82,124 +101,122 @@ def setup_history_database(path):
             content TEXT NOT NULL,
             embedding TEXT, 
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (conversation_id, role)  -- Clé composite
+            PRIMARY KEY (conversation_id, role)  -- Composite primary key
         )
     """
     )
     conn.close()
-    print(f"✅ Base `{path}` initialisée avec `chat_history` et `embedding`.")
+    logger.info("✅ Database and `chat_history` table successfully initialized.")
 
 
-# 🔹 Fonction pour ajouter un message et stocker l'embedding
+# Function to add a conversation entry with embedding storage
 def add_conversation_with_embedding(path, question, response, model="all-minilm:33m"):
-    conn = duckdb.connect(path)
+    logger.info("Adding a new conversation to the database")
+    try:
+        conn = duckdb.connect(path)
+        conversation_id = str(uuid.uuid4())  # Generate unique conversation ID
 
-    # Générer un identifiant unique pour la conversation
-    conversation_id = str(
-        uuid.uuid4()
-    )  # Utilisation d'un UUID pour éviter les conflits
+        # Generate embeddings for question and response
+        question_embedding = get_embedding(question, model)
+        response_embedding = get_embedding(response, model)
 
-    # Générer les embeddings pour la question et la réponse
-    question_embedding = get_embedding(question, model)
-    response_embedding = get_embedding(response, model)
+        # Convert embeddings to JSON format
+        question_embedding_json = json.dumps(question_embedding)
+        response_embedding_json = json.dumps(response_embedding)
 
-    # Convertir en JSON string
-    question_embedding_json = json.dumps(question_embedding)
-    response_embedding_json = json.dumps(response_embedding)
+        # Insert user question into chat history
+        conn.execute(
+            """
+            INSERT INTO chat_history (conversation_id, role, content, embedding) 
+            VALUES (?, ?, ?, ?)
+            """,
+            (conversation_id, "user", question, question_embedding_json),
+        )
 
-    # Insérer la question
-    conn.execute(
-        """
-        INSERT INTO chat_history (conversation_id, role, content, embedding) 
-        VALUES (?, ?, ?, ?)
-    """,
-        (conversation_id, "user", question, question_embedding_json),
-    )
-
-    # Insérer la réponse associée
-    conn.execute(
-        """
-        INSERT INTO chat_history (conversation_id, role, content, embedding) 
-        VALUES (?, ?, ?, ?)
-    """,
-        (conversation_id, "assistant", response, response_embedding_json),
-    )
-
-    conn.close()
+        # Insert assistant response into chat history
+        conn.execute(
+            """
+            INSERT INTO chat_history (conversation_id, role, content, embedding) 
+            VALUES (?, ?, ?, ?)
+            """,
+            (conversation_id, "assistant", response, response_embedding_json),
+        )
+        conn.close()
+        logger.info("✅ Conversation successfully added.")
+    except Exception as e:
+        logger.exception("Error adding conversation")
+        raise
 
 
-# 🔹 Fonction pour récupérer l'historique
+# Function to retrieve conversation history
 def get_history(path):
+    logger.info("Fetching conversation history")
     conn = duckdb.connect(path)
     history = conn.execute(
         """
         SELECT role, content, embedding FROM chat_history ORDER BY timestamp ASC
-    """
+        """
     ).fetchall()
     conn.close()
+    logger.info(f"Retrieved {len(history)} entries from history")
+    return [
+        {
+            "role": role,
+            "content": content,
+            "embedding": json.loads(embedding) if embedding else None,
+        }
+        for role, content, embedding in history
+    ]
 
-    # Convertir les embeddings JSON stringifiés en liste
-    formatted_history = []
-    for role, content, embedding in history:
-        embedding_vector = json.loads(embedding) if embedding else None
-        formatted_history.append(
-            {"role": role, "content": content, "embedding": embedding_vector}
-        )
 
-    return formatted_history
-
-
-# 🔹 Fonction pour récupérer les messages similaires à une question donnée
+# Function to retrieve similar conversations based on embedding similarity
 def retrieve_similar_conversations(
     question, path, model="all-minilm:33m", min_k=1, max_k=5, threshold=0.70
 ):
-    # Générer l'embedding de la question posée
-    question_embedding = get_embedding(question, model)
+    logger.info(f"Searching for similar conversations for question: {question}")
+    try:
+        question_embedding = get_embedding(question, model)
 
-    # Connexion à la DB pour récupérer uniquement les questions (role "user")
-    conn = duckdb.connect(path)
-    user_messages = conn.execute(
-        "SELECT conversation_id, content, embedding FROM chat_history WHERE role = 'user'"
-    ).fetchall()
-    conn.close()
+        # Fetch stored user messages
+        conn = duckdb.connect(path)
+        user_messages = conn.execute(
+            "SELECT conversation_id, content, embedding FROM chat_history WHERE role = 'user'"
+        ).fetchall()
+        conn.close()
 
-    if not user_messages:
-        return []
+        similarities = []
+        conversations = {}
 
-    similarities = []
-    conversations = {}
+        # Compute similarity between input question and stored user questions
+        for conversation_id, content, embedding in user_messages:
+            if embedding:
+                msg_embedding = json.loads(embedding)
+                sim = cosine_similarity(question_embedding, msg_embedding)
+                if sim >= threshold:
+                    similarities.append((conversation_id, sim))
+                    conversations[conversation_id] = {
+                        "question": content,
+                        "response": None,
+                    }
 
-    # Calculer la similarité entre l'embedding de la question posée et celles des messages utilisateurs stockés
-    for conversation_id, content, embedding in user_messages:
-        if embedding:
-            msg_embedding = json.loads(embedding)
-            sim = cosine_similarity(question_embedding, msg_embedding)
-            if sim >= threshold:
-                similarities.append((conversation_id, sim))
-                # On enregistre la question et on prépare la place pour la réponse
-                conversations[conversation_id] = {"question": content, "response": None}
+        # Fetch stored assistant responses
+        conn = duckdb.connect(path)
+        assistant_messages = conn.execute(
+            "SELECT conversation_id, content FROM chat_history WHERE role = 'assistant'"
+        ).fetchall()
+        conn.close()
 
-    # Si aucune question ne correspond, retourner une liste vide
-    if not similarities:
-        return []
+        # Match responses to corresponding user questions
+        for conv_id, content in assistant_messages:
+            if conv_id in conversations:
+                conversations[conv_id]["response"] = content
 
-    # Pour chaque conversation qui a passé le seuil, récupérer la réponse associée (role "assistant")
-    conn = duckdb.connect(path)
-    assistant_messages = conn.execute(
-        "SELECT conversation_id, content FROM chat_history WHERE role = 'assistant'"
-    ).fetchall()
-    conn.close()
-
-    for conv_id, content in assistant_messages:
-        if conv_id in conversations:
-            conversations[conv_id]["response"] = content
-
-    # Trier les résultats par similarité décroissante
-    similarities.sort(key=lambda x: x[1], reverse=True)
-
-    # Sélectionner les Top-K conversations (en s'assurant que la réponse existe)
-    top_conversations = []
-    for conv_id, sim in similarities[: max(min_k, min(len(similarities), max_k))]:
-        if conversations[conv_id]["question"] and conversations[conv_id]["response"]:
-            top_conversations.append(conversations[conv_id])
-    return top_conversations
+        similarities.sort(key=lambda x: x[1], reverse=True)
+        logger.debug(f"Found {len(similarities)} similar conversations")
+        return [
+            conversations[conv_id]
+            for conv_id, _ in similarities[: max(min_k, min(len(similarities), max_k))]
+        ]
+    except Exception as e:
+        logger.exception("Error retrieving similar conversations")
+        raise

@@ -31,7 +31,7 @@ LOG_LEVEL_ENV = os.getenv(
 )  # Changez ce niveau pour DEBUG, INFO, WARNING, ERROR, CRITICAL
 DATABASE_MODEL = os.getenv("DATABASE_MODEL")
 REASONING_MODEL = os.getenv("REASONING_MODEL")
-CONTEXTUALISATION_MODEL = os.getenv("CONTEXTUALISATION_MODEL")
+PLAN_MODEL = os.getenv("PLAN_MODEL")
 
 # Mappage des niveaux de log
 LOG_LEVEL_MAP = {
@@ -92,55 +92,78 @@ history = []
 
 
 def verify_and_reflect(context, python_results):
-    logger.info("Verifying and reflecting on execution results...")
+    """
+    Evaluates execution results and determines the next step based on available SQL and Python results.
+    """
+    logger.info("🔍 Starting verification and reflection on execution results.")
+
+    # Check if there are SQL results
     if context["sql_results"]:
         invalid_sql_results = [
             res
             for res in context["sql_results"]
             if not isinstance(res, dict) or not res
         ]
+
         if invalid_sql_results:
-            logger.warning(f"Invalid SQL results detected: {invalid_sql_results}")
-            return "Résultats SQL incorrects"
+            logger.warning(f"⚠️ Invalid SQL results detected: {invalid_sql_results}")
+            return "Résultats SQL incorrects"  # Indicate SQL result issues
 
+        # If Python analysis is required, transition to Python execution
         if "requires_python_analysis" in context:
+            logger.info("🔄 SQL results indicate a need for Python analysis.")
             return "Passer à Python"
-        else:
-            return "Terminé"
 
+        logger.info("✅ SQL results validated successfully.")
+        return "Terminé"  # Execution can be considered complete
+
+    # Check if Python results exist
     elif python_results:
-        logger.info("Python results found.")
+        logger.info("✅ Python results found. Execution considered complete.")
         return "Terminé"
 
-    logger.debug("Continuing...")
+    # If no results are found, continue processing
+    logger.debug("⚡ No results found yet, continuing execution...")
     return "Continuer"
 
 
 def llm_data_interpreter(question, schema, initial_context):
-    logger.info(f"Starting LLM data interpreter with question: {question}")
+    """
+    Interprets user queries using LLM, leveraging historical data and generating responses through SQL and Python execution.
+    """
+    history_path = os.getenv("HISTORY_DB_FILE")
+    setup_history_database(history_path)
+    logger.info(f"🚀 Starting LLM data interpreter for question: {question}")
+
     context = initial_context
     global sql_results
     global python_results
+
+    # Retrieve similar past interactions for context
     similar_messages = retrieve_similar_conversations(
         question, os.getenv("HISTORY_DB_FILE")
     )
     context["sql_results"] = context.get("sql_results", [])
     context["python_results"] = context.get("python_results", [])
-    if similar_messages:
-        history_summary = "\n".join(
-            [
-                f"User: {conv['question']}\nAssistant: {conv['response']}"
-                for conv in similar_messages
-            ]
-        )
-        logger.debug(f"🔍 Historique pertinent trouvé : \n{history_summary}")
-        # 🔹 Générer la réponse finale
+
+    if similar_messages or "#pass" in question:
+        history_summary = ""
+        if similar_messages:
+            history_summary = "\n".join(
+                [
+                    f"User: {conv['question']}\nAssistant: {conv['response']}"
+                    for conv in similar_messages
+                ]
+            )
+            logger.debug(f"🔍 Relevant conversation history found: \n{history_summary}")
+
+        # Generate a final response based on historical data
         final_response = generate_final_response_with_llama(
             context,
             None,
             reasoning_model,
             None,
-            history_summary,  # Utilise le résumé de l'historique
+            history_summary,
         )
         add_conversation_with_embedding(
             os.getenv("HISTORY_DB_FILE"), question, final_response
@@ -148,17 +171,21 @@ def llm_data_interpreter(question, schema, initial_context):
 
         return final_response
 
+    # Initialize an empty history summary
     history_summary = ""
     context["history_summary"] = history_summary
 
     while True:
-        logger.debug("Generating plan...")
+        logger.debug("🛠️ Generating execution plan...")
         sql_results = None
         python_results = None
+
+        # Generate an action plan and extract Python code if needed
         plan, python_code = command_r_plus_plan(
-            question, schema, contextualisation_model, history_summary
+            question, schema, plan_model, history_summary
         )
 
+        # Execute tools (SQL, Python) based on the generated plan
         context, python_results, sql_results, files_generated = generate_tools_with_llm(
             plan,
             schema,
@@ -170,14 +197,20 @@ def llm_data_interpreter(question, schema, initial_context):
             python_code,
             os.getenv("DB_FILE"),
         )
-        logger.debug(f"Results: {context['sql_results']}, {python_results}")
+
+        logger.debug(
+            f"📊 Execution results: {context['sql_results']}, {python_results}"
+        )
+
+        # Analyze results and determine next steps
         reflection = verify_and_reflect(context, python_results)
-        logger.debug(f"Reflection result: {reflection}")
+        logger.debug(f"🔄 Reflection result: {reflection}")
 
         if "Terminé" in reflection:
-            logger.info("Execution process completed.")
+            logger.info("✅ Execution process completed successfully.")
             break
 
+    # Generate a final response based on gathered data
     final_response = generate_final_response_with_llama(
         context,
         python_results,
@@ -185,9 +218,12 @@ def llm_data_interpreter(question, schema, initial_context):
         files_generated,
         None,
     )
+
+    # Save the interaction in history
     add_conversation_with_embedding(
         os.getenv("HISTORY_DB_FILE"), question, final_response
     )
+
     return final_response
 
 
@@ -263,58 +299,85 @@ def run_help_command():
 
 @app.post("/query/")
 async def query_endpoint(request: QueryRequest):
+    """
+    Handles incoming queries, retrieves the database schema, and processes the request using LLM.
+    """
     try:
         complex_query = request.complex_query
-        logger.info(f"Received query: {complex_query}")
+        logger.info(f"📥 Received query: {complex_query}")
+
+        # Establish a connection to DuckDB to retrieve the schema
         conn = duckdb.connect(os.getenv("DB_FILE"))
         schema = get_schema(conn)
-        logger.debug(f"Schema: {schema}")
-        conn.close()  # Fermez la connexion DuckDB
+        logger.debug(f"📊 Retrieved schema: {schema}")
+
+        # Close the database connection after retrieving schema information
+        conn.close()
+        logger.info("✅ Database connection closed.")
+
+        # Prepare the initial context for LLM processing
         initial_context = {"question": complex_query}
+
+        # Process the query using the LLM data interpreter
         response = llm_data_interpreter(complex_query, schema, initial_context)
+
+        logger.info("✅ Query processed successfully.")
         return {"analysis_result": response}
+
     except Exception as e:
-        logger.error("Error processing query", exc_info=True)
+        logger.error("❌ Error processing query", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
+    """
+    Main entry point of the application. Handles argument parsing, database preparation,
+    model initialization, and starts the FastAPI server.
+    """
     try:
         if len(sys.argv) <= 1:
+            logger.info("No arguments provided. Displaying help command.")
             run_help_command()
             exit(84)
 
         if len(sys.argv) == 2 and sys.argv[1] == "--help":
+            logger.info("Displaying help command.")
             run_help_command()
             exit(0)
 
         if len(sys.argv) == 2 and sys.argv[1] == "--v":
-            logger.info("Showing script version")
+            logger.info("Displaying script version.")
             print(__version__)
             exit(0)
+
         filepath = sys.argv[1:]
         if filepath is not None:
-            logger.info("Suppression de l'ancienne base de données...")
+            logger.info("🔄 Removing old database file...")
             remove_database_file()
-        logger.info(f"Preparing database with files: {filepath}")
+
+        logger.info(f"📂 Preparing database with files: {filepath}")
         prepare_database(filepath)
         setup_history_database(os.getenv("HISTORY_DB_FILE"))
 
+        # Initializing LLM models
         database_model = OllamaLLM(model=DATABASE_MODEL)
-        logger.info(f"Database model: {DATABASE_MODEL}")
+        logger.info(f"📊 Database model initialized: {DATABASE_MODEL}")
         reasoning_model = OllamaLLM(model=REASONING_MODEL)
-        logger.info(f"Reasoning model: {REASONING_MODEL}")
-        contextualisation_model = OllamaLLM(model=CONTEXTUALISATION_MODEL)
-        logger.info(f"Contextualiser model: {CONTEXTUALISATION_MODEL}")
+        logger.info(f"🧠 Reasoning model initialized: {REASONING_MODEL}")
+        plan_model = OllamaLLM(model=PLAN_MODEL)
+        logger.info(f"📜 Contextualisation model initialized: {PLAN_MODEL}")
         code_model = OllamaLLM(model=os.getenv("CODE_MODEL"))
-        logger.info(f"Code model: {os.getenv("CODE_MODEL")}")
+        logger.info(f"💻 Code model initialized: {os.getenv('CODE_MODEL')}")
 
+        # Ensure output directory exists
         if not os.path.exists("output"):
             os.makedirs("output", exist_ok=True)
+            logger.info("📁 'output' directory created.")
 
-        logger.info("Starting FastAPI server...")
+        # Start the FastAPI server
+        logger.info("🚀 Starting FastAPI server...")
         uvicorn.run(app, host=os.getenv("ADDRESS"), port=int(os.getenv("PORT")))
 
     except Exception:
-        logger.error("Fatal error during application startup", exc_info=True)
+        logger.error("❌ Fatal error during application startup", exc_info=True)
         sys.exit(1)

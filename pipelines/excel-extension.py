@@ -104,16 +104,21 @@ class Pipeline:
         LLAMAINDEX_OLLAMA_BASE_URL: str = "http://host.docker.internal:11434"
         LLAMAINDEX_REASONING_MODEL_NAME: str = os.getenv("REASONING_MODEL")
         LLAMAINDEX_DB_MODEL_NAME: str = os.getenv("DATABASE_MODEL")
-        LLAMAINDEX_PLAN_MODEL_NAME: str = os.getenv("CONTEXTUALISATION_MODEL")
+        LLAMAINDEX_PLAN_MODEL_NAME: str = os.getenv("PLAN_MODEL")
         LLAMAINDEX_CODE_MODEL_NAME: str = os.getenv("CODE_MODEL")
         # FICHIERS: str = ""
 
     def __init__(self):
+        """
+        Initializes the Pipeline class with model configurations and paths.
+        """
+        logger.debug(
+            "Initializing Pipeline class"
+        )  # Debug log: initialization process started
+
+        # Initialize instance variables
         self.sql_results = None
         self.python_results = None
-        # On stocke deux ensembles pour mieux gérer :
-        #  - ceux qu'on connaît déjà dans shared_data
-        #  - ceux qu'on connaît déjà dans uploads
         self.shared_data_directory = "/srv/data/"
         self.upload_directory = "/app/backend/data/uploads/"
         self.known_shared_files: Set[str] = set()
@@ -123,6 +128,8 @@ class Pipeline:
         self.custom_db_path = None
         self.custom_history_path = None
         self.latest_files_by_chat = {}
+
+        # Load model configurations from environment variables
         self.valves = self.Valves(
             LLAMAINDEX_OLLAMA_BASE_URL=os.getenv(
                 "LLAMAINDEX_OLLAMA_BASE_URL", "http://host.docker.internal:11434"
@@ -134,15 +141,18 @@ class Pipeline:
                 "LLAMAINDEX_DB_MODEL_NAME", os.getenv("DATABASE_MODEL")
             ),
             LLAMAINDEX_PLAN_MODEL_NAME=os.getenv(
-                "LLAMAINDEX_PLAN_MODEL_NAME", os.getenv("CONTEXTUALISATION_MODEL")
+                "LLAMAINDEX_PLAN_MODEL_NAME", os.getenv("PLAN_MODEL")
             ),
             LLAMAINDEX_CODE_MODEL_NAME=os.getenv(
                 "LLAMAINDEX_CODE_MODEL_NAME", os.getenv("CODE_MODEL")
             ),
         )
-        logger.info(f"Valves initialized: {self.valves}")
+        logger.info(
+            f"Valves initialized: {self.valves}"
+        )  # Info log: model configurations loaded
 
         try:
+            # Initialize LLM models
             self.database_model = OllamaLLM(
                 model=self.valves.LLAMAINDEX_DB_MODEL_NAME,
                 base_url="http://host.docker.internal:11434",
@@ -151,7 +161,7 @@ class Pipeline:
                 model=self.valves.LLAMAINDEX_REASONING_MODEL_NAME,
                 base_url="http://host.docker.internal:11434",
             )
-            self.contextualisation_model = OllamaLLM(
+            self.plan_model = OllamaLLM(
                 model=self.valves.LLAMAINDEX_PLAN_MODEL_NAME,
                 base_url="http://host.docker.internal:11434",
             )
@@ -159,121 +169,92 @@ class Pipeline:
                 model=self.valves.LLAMAINDEX_CODE_MODEL_NAME,
                 base_url="http://host.docker.internal:11434",
             )
+
+            # Test connection to Ollama service
             test_ollama_connection()
-            logger.info("Models initialized successfully.")
+            logger.info(
+                "Models initialized successfully."
+            )  # Info log: successful model initialization
+
         except NewConnectionError as conn_error:
-            logger.error(f"Connection to Ollama failed: {conn_error}")
+            logger.error(
+                f"Connection to Ollama failed: {conn_error}"
+            )  # Error log: connection failure
             raise RuntimeError(
                 "Failed to connect to Ollama. Check the service URL and availability."
             )
         except Exception as e:
-            logger.error(f"Error initializing models: {e}")
+            logger.error(
+                f"Error initializing models: {e}"
+            )  # Error log: general initialization error
             raise RuntimeError("General error during model initialization.")
-
-    def scan_directory_shared(self) -> set:
-        """Scanne le répertoire `/srv/data/{chat_id}` et retourne les fichiers valides."""
-        files = set()
-
-        # ✅ Vérifier si `chat_id` est bien défini
-        if not self.chat_id:
-            logging.warning(
-                "❌ Aucun `chat_id` défini ! Impossible de scanner les fichiers."
-            )
-            return files  # Retourne un set vide
-
-        path = os.path.join(self.shared_data_directory, self.chat_id)
-
-        # ✅ Vérifier si le dossier existe avant de le scanner
-        if not os.path.exists(path):
-            logging.warning(f"❌ Dossier non trouvé : {path}")
-            return files  # Retourne un set vide
-
-        # ✅ Scanner uniquement les fichiers autorisés
-        for f in os.listdir(path):
-            pathf = os.path.join(path, f)
-            if os.path.isfile(pathf) and f.endswith(
-                (".xls", ".xlsx", ".csv", ".json", ".pdf", ".py")
-            ):
-                files.add(pathf)
-
-        logging.debug(f"📂 Fichiers scannés dans `{path}` : {files}")
-        return files
-
-    def scan_directory_uploads(self) -> set:
-        """Retourne un set de tuples (nom_fichier_complet, nom_fichier_sans_UUID)."""
-        files = set()
-        for f in os.listdir(self.upload_directory):
-            pathf = os.path.join(self.upload_directory, f)
-            if os.path.isfile(pathf) and f.endswith(
-                (".xls", ".xlsx", ".csv", ".json", ".pdf", ".py")
-            ):
-                clean_name = self.extract_filename_without_uuid(f)
-                files.add((f, clean_name))
-        logging.debug(f"Fichiers scannés dans uploads: {files}")
-        return files
-
-    @staticmethod
-    def extract_filename_without_uuid(filename: str) -> str:
-        """Extrait le nom de fichier sans l'UUID éventuel en préfixe."""
-        parts = filename.split("_", 1)
-        return parts[1] if len(parts) > 1 else filename
 
     async def on_startup(self):
         pass
 
     def detect_and_process_changes(self):
         """
-        Ajoute les fichiers à /srv/data/{chat_id} si adding: False,
-        et supprime éventuellement de la base de données ceux qui ne sont plus présents.
-        (Ici la suppression est omise ; à adapter selon vos besoins.)
+        Detects and processes file changes by adding missing files to /srv/data/{chat_id}.
+        Removes database entries for missing files if necessary (deletion is currently omitted).
         """
-        logger.info(f"🔍detect_and_process_changes() lancé")
-        logger.debug(f"📌 Valeur actuelle de self.chat_id: {self.chat_id}")
+        logger.info(
+            "🔍 detect_and_process_changes() started"
+        )  # INFO: Function execution begins
+        logger.debug(
+            f"📌 Current chat_id value: {self.chat_id}"
+        )  # DEBUG: Check chat_id value
 
         if not self.chat_id:
-            logging.warning(
-                "❌ Aucun chat_id défini ! Impossible de traiter les fichiers."
-            )
+            logger.warning(
+                "❌ No chat_id defined! Cannot process files."
+            )  # WARNING: chat_id is missing
             return
 
         chat_path = os.path.join(self.shared_data_directory, self.chat_id)
-        logger.debug(f"🔍 Chat Path: {chat_path}")
+        logger.debug(f"🔍 Chat Path: {chat_path}")  # DEBUG: Show target chat path
 
-        # ✅ Assurer que le dossier existe
+        # Ensure the directory exists
         if not os.path.exists(chat_path):
             os.makedirs(chat_path, exist_ok=True)
-            logging.info(f"📁 Dossier créé : {chat_path}")
+            logger.info(
+                f"📁 Created directory: {chat_path}"
+            )  # INFO: Chat directory created
 
-        # 🔍 Liste des fichiers actuellement présents (si vous voulez gérer une suppression)
+        # Retrieve existing files in the chat directory
         existing_files = set(os.listdir(chat_path))
         existing_uuids = {f.split("_", 1)[0] for f in existing_files if "_" in f}
-        logger.debug(f"📂 DEBUG: Fichiers actuels dans {chat_path}: {existing_files}")
-        logger.debug(f"📂 DEBUG: UUIDs extraits des fichiers actuels: {existing_uuids}")
+        logger.debug(
+            f"📂 DEBUG: Existing files in {chat_path}: {existing_files}"
+        )  # DEBUG: List current files
+        logger.debug(
+            f"📂 DEBUG: Extracted UUIDs: {existing_uuids}"
+        )  # DEBUG: Show extracted UUIDs
 
-        # ✅ Liste à jour après gestion
         updated_files = []
-        new_filepaths_to_db = []  # Liste des nouveaux fichiers pour prepare_database()
+        new_filepaths_to_db = []  # List of new files to add to the database
 
-        logger.info("🔄 Début du traitement des fichiers...")
+        logger.info("🔄 Starting file processing...")  # INFO: Begin processing files
 
-        # Parcourir la liste des fichiers du dernier message
+        # Iterate through the latest files
         for file_data in self.latest_files_by_chat[self.chat_id]:
             file_id = file_data.get("file_id")
             filename = file_data.get("filename")
 
             logger.info(
-                f"📝 Traitement du fichier : file_id={file_id}, filename={filename}"
-            )
+                f"📝 Processing file: file_id={file_id}, filename={filename}"
+            )  # INFO: Processing a file
 
             if file_id is None or filename is None:
                 logger.error(
-                    f"🚨 ERREUR: file_id ou filename est None ! Données: {file_data}"
-                )
-                continue  # On saute ce fichier corrompu
+                    f"🚨 ERROR: file_id or filename is None! Data: {file_data}"
+                )  # ERROR: Invalid file data
+                continue
 
-            # Si 'adding' est déjà True, on ne refait pas la copie
+            # Skip if already added
             if file_data.get("adding", False) is True:
-                logger.info(f"⚠️ Fichier {filename} déjà ajouté, on skip.")
+                logger.info(
+                    f"⚠️ File {filename} already added, skipping."
+                )  # INFO: Skipping already added file
                 updated_files.append(file_data)
                 continue
 
@@ -281,66 +262,52 @@ class Pipeline:
             dest_path = os.path.join(chat_path, filename)
 
             logger.info(
-                f"📥 Vérification de la copie depuis {source_path} vers {dest_path}"
-            )
+                f"📥 Checking file copy from {source_path} to {dest_path}"
+            )  # INFO: Checking file transfer
 
-            # Nouvel ajout : vérifier si le fichier existe déjà dans le dossier de destination
+            # Check if file already exists at the destination
             if os.path.exists(dest_path):
                 logger.info(
-                    f"✅ Fichier déjà présent dans {dest_path}, on marque comme ajouté."
-                )
+                    f"✅ File already exists in {dest_path}, marking as added."
+                )  # INFO: File exists, marking added
                 file_data["adding"] = True
             else:
-                # Copie du fichier si pas encore ajouté
+                # Copy file if source exists
                 if os.path.exists(source_path):
                     shutil.copy(source_path, dest_path)
-                    logger.info(f"✅ Fichier copié: {source_path} → {dest_path}")
-                    file_data["adding"] = True  # Marquer comme ajouté
-                    new_filepaths_to_db.append(dest_path)  # Ajouter pour traitement BD
+                    logger.info(
+                        f"✅ File copied: {source_path} → {dest_path}"
+                    )  # INFO: File successfully copied
+                    file_data["adding"] = True
+                    new_filepaths_to_db.append(dest_path)  # Add for DB processing
                 else:
                     logger.warning(
-                        f"⚠️ Fichier source introuvable: {source_path}, fichier non copié."
-                    )
+                        f"⚠️ Source file not found: {source_path}, not copied."
+                    )  # WARNING: Source file missing
 
             updated_files.append(file_data)
 
-        # 🛠️ Mettre à jour la liste des fichiers actifs
+        # Update the list of active files
         self.latest_files_by_chat[self.chat_id] = updated_files
 
-        # 📊 Si de nouveaux fichiers ont été ajoutés, on les envoie à la base de données
+        # Add new files to the database if necessary
         if new_filepaths_to_db:
-            logging.info(
-                f"📊 Envoi des nouveaux fichiers à la base de données: {new_filepaths_to_db}"
-            )
+            logger.info(
+                f"📊 Sending new files to the database: {new_filepaths_to_db}"
+            )  # INFO: Updating database
             prepare_database(filepaths=new_filepaths_to_db, collection_id=self.chat_id)
 
-    def get_existing_files_by_uuid(self, chat_path: str) -> set:
-        """Retourne un set des UUID des fichiers existants dans `/srv/data/{chat_id}/`."""
-        existing_uuids = set()
-        for f in os.listdir(chat_path):
-            if "_" in f:
-                file_uuid = f.split("_", 1)[0]  # Extraire l'UUID du nom de fichier
-                existing_uuids.add(file_uuid)
-        return existing_uuids
-
-    def get_latest_files(self, chat_id):
-        """Retourne tous les fichiers du dernier message pour cette conversation"""
-        return self.latest_files_by_chat.get(chat_id, [])
-
     async def inlet(self, body: dict, user: typing.Optional[dict] = None) -> dict:
-        logger.debug(f"📂 DEBUG: Body reçu dans `inlet()` → {body}")
+        """
+        Processes incoming requests, extracts metadata, and manages file operations.
+        Ensures the correct chat_id is assigned and files are processed accordingly.
+        """
+        logger.info("🔄 inlet() function started")  # INFO: Function execution begins
+        logger.debug(
+            f"📂 DEBUG: Received body → {body}"
+        )  # DEBUG: Log received request body
 
-        self.chat_id = body.get("metadata", {}).get("chat_id", "unknown_chat")
-
-        if self.chat_id is None:
-            logger.error("🚨 ERREUR: `chat_id` est None, correction en cours...")
-            self.chat_id = "unknown_chat"
-
-        path = os.path.join("/srv/data", self.chat_id)
-
-        if not os.path.exists(path):
-            os.makedirs(path, exist_ok=True)
-
+        # Initialize LLM models if their configurations are available
         if self.valves.LLAMAINDEX_DB_MODEL_NAME is not None:
             self.database_model = OllamaLLM(
                 model=self.valves.LLAMAINDEX_DB_MODEL_NAME,
@@ -352,7 +319,7 @@ class Pipeline:
                 base_url="http://host.docker.internal:11434",
             )
         if self.valves.LLAMAINDEX_PLAN_MODEL_NAME is not None:
-            self.contextualisation_model = OllamaLLM(
+            self.plan_model = OllamaLLM(
                 model=self.valves.LLAMAINDEX_PLAN_MODEL_NAME,
                 base_url="http://host.docker.internal:11434",
             )
@@ -362,32 +329,37 @@ class Pipeline:
                 base_url="http://host.docker.internal:11434",
             )
 
-        logger.debug(f"📂 DEBUG: Body reçu dans inlet() → {body}")
-
+        # Extract chat_id from metadata
         self.chat_id = body.get("metadata", {}).get("chat_id", "unknown_chat")
         if self.chat_id is None:
-            logger.error("🚨 ERREUR: chat_id est None, correction en cours...")
+            logger.error(
+                "🚨 ERROR: chat_id is None, correcting to 'unknown_chat'"
+            )  # ERROR: chat_id missing
             self.chat_id = "unknown_chat"
 
+        logger.debug(
+            f"📌 DEBUG: Extracted chat_id → {self.chat_id}"
+        )  # DEBUG: Log extracted chat_id
+
+        # Ensure the directory for the chat exists
         path = os.path.join(self.shared_data_directory, self.chat_id)
         if not os.path.exists(path):
             os.makedirs(path, exist_ok=True)
+            logger.info(f"📁 Created directory: {path}")  # INFO: Chat directory created
 
-        # Définition de LLM fictives si besoin
-        if self.valves.LLAMAINDEX_RAG_MODEL_NAME is not None:
-            # ...
-            pass
-
-        logger.debug(f"📌 DEBUG: chat_id extrait → {self.chat_id}")
-
+        # Extract file metadata
         files = body.get("metadata", {}).get("files", [])
-        logger.debug(f"📂 DEBUG: files extrait → {files}")
+        logger.debug(
+            f"📂 DEBUG: Extracted files → {files}"
+        )  # DEBUG: Log extracted file list
 
         if not files:
-            logger.info("❌ Aucun fichier détecté ! Vérifie la structure du body.")
-            return body  # On ne fait rien s'il n'y a pas de fichier
+            logger.warning(
+                "❌ No files detected! Check request body structure."
+            )  # WARNING: No files found
+            return body  # Exit early if no files are present
 
-        # On prépare la liste des nouveaux fichiers pour ce chat_id
+        # Prepare a list of new files for this chat_id
         if self.chat_id not in self.latest_files_by_chat:
             self.latest_files_by_chat[self.chat_id] = []
 
@@ -401,62 +373,64 @@ class Pipeline:
             original_filename = file_info.get("filename")
 
             logger.info(
-                f"🔎 Traitement du fichier → file_id={file_id}, filename={original_filename}"
-            )
+                f"🔎 Processing file → file_id={file_id}, filename={original_filename}"
+            )  # INFO: File processing started
+
             if not file_id or not original_filename:
-                logger.error(f"🚨 ERREUR: Problème avec ce fichier: {file_data}")
+                logger.error(
+                    f"🚨 ERROR: Issue with file metadata: {file_data}"
+                )  # ERROR: File data is incorrect
                 continue
 
             if not UUID_REGEX.match(f"{file_id}_{original_filename}"):
-                # On saute si ça ne matche pas le pattern ou si info incomplète
                 logger.warning(
-                    f"Fichier ignoré (pas d'UUID valide) : {original_filename}"
-                )
+                    f"⚠️ File ignored (invalid UUID format): {original_filename}"
+                )  # WARNING: Invalid file format
                 continue
-            # 🛠️ Générer le nouveau nom du fichier (avec UUID si pas déjà présent)
-            # Ici, on vérifie si le filename est déjà de la forme UUID_filename
+
+            # Generate a new filename if it does not already have a UUID
             if not re.match(
                 r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_.+",
                 original_filename,
             ):
                 new_filename = f"{file_id}_{original_filename}"
             else:
-                # On suppose que le fichier a déjà un UUID
-                new_filename = original_filename
+                new_filename = original_filename  # Assume the file already has a UUID
 
             if new_filename in existing_filenames:
                 logger.debug(
-                    f"Le fichier {new_filename} est déjà présent, on conserve son état."
-                )
+                    f"File {new_filename} already exists, maintaining its state."
+                )  # DEBUG: File already exists
                 continue
 
             source_path = os.path.join(self.upload_directory, original_filename)
             new_path = os.path.join(self.upload_directory, new_filename)
 
             if os.path.exists(source_path):
-                # On renomme localement dans uploads/
                 os.rename(source_path, new_path)
-                logger.debug(f"✅ Fichier renommé: {source_path} → {new_path}")
+                logger.debug(
+                    f"✅ File renamed: {source_path} → {new_path}"
+                )  # DEBUG: File successfully renamed
             else:
                 logger.debug(
-                    f"⚠️ Fichier source introuvable: {source_path} (peut-être non encore uploadé)"
-                )
+                    f"⚠️ Source file not found: {source_path} (possibly not uploaded yet)"
+                )  # DEBUG: Source file missing
 
-            # adding=False -> on va le copier plus tard dans detect_and_process_changes
+            # Mark as not added yet for further processing
             new_files.append(
                 {"file_id": file_id, "filename": new_filename, "adding": False}
             )
-
             existing_filenames.add(new_filename)
 
         self.latest_files_by_chat[self.chat_id] = existing_files + new_files
         logger.info(
-            f"📂 Fichiers du dernier message: {self.latest_files_by_chat[self.chat_id]}"
-        )
+            f"📂 Updated latest files for chat_id {self.chat_id}: {self.latest_files_by_chat[self.chat_id]}"
+        )  # INFO: Updated file list
 
-        # Lance la détection et le traitement
+        # Trigger file processing
         self.detect_and_process_changes()
 
+        # Update custom history database path
         self.custom_history_path = os.getenv("HISTORY_DB_FILE")
         self.custom_history_path = self.custom_history_path.replace(
             "id", str(self.chat_id)
@@ -468,45 +442,80 @@ class Pipeline:
         pass
 
     def verify_and_reflect(self, context, python_results):
-        logger.info("Verifying and reflecting on execution results...")
+        """
+        Verifies and reflects on execution results.
+        Determines the next step based on SQL and Python results.
+        """
+        logger.info(
+            "🔍 Verifying and reflecting on execution results..."
+        )  # INFO: Process started
+
+        # Check if SQL results exist
         if context["sql_results"]:
+            logger.debug(
+                f"📊 SQL results found: {context['sql_results']}"
+            )  # DEBUG: Log SQL results
+
+            # Identify invalid SQL results
             invalid_sql_results = [
                 res
                 for res in context["sql_results"]
                 if not isinstance(res, dict) or not res
             ]
             if invalid_sql_results:
-                logger.warning(f"Invalid SQL results detected: {invalid_sql_results}")
+                logger.warning(
+                    f"⚠️ Invalid SQL results detected: {invalid_sql_results}"
+                )  # WARNING: Invalid SQL results found
                 return "Résultats SQL incorrects"
 
+            # Determine if further Python analysis is required
             if "requires_python_analysis" in context:
+                logger.info(
+                    "🔄 SQL results require Python analysis, proceeding..."
+                )  # INFO: SQL needs Python analysis
                 return "Passer à Python"
             else:
+                logger.info(
+                    "✅ SQL results valid, process complete."
+                )  # INFO: SQL processing complete
                 return "Terminé"
 
+        # Check if Python results exist
         elif python_results:
-            logger.info("Python results found.")
+            logger.info(
+                "✅ Python results found, process complete."
+            )  # INFO: Python execution successful
             return "Terminé"
 
-        logger.debug("Continuing...")
+        # If no valid SQL or Python results, continue processing
+        logger.debug(
+            "🔄 No valid SQL or Python results, continuing execution..."
+        )  # DEBUG: Continue execution
         return "Continuer"
 
     def llm_data_interpreter(self, question, schema, initial_context):
+        """
+        Interprets data using the LLM model.
+        Retrieves relevant conversation history, processes SQL and Python results,
+        and generates a final response.
+        """
         setup_history_database(self.custom_history_path)
-        logger.info(f"Starting LLM data interpreter with question: {question}")
+        logger.info(
+            f"🚀 Starting LLM data interpreter with question: {question}"
+        )  # INFO: Function execution begins
 
         context = initial_context
 
-        # 🔹 Rechercher les messages similaires
+        # Retrieve similar past conversations
         similar_messages = retrieve_similar_conversations(
             question, self.custom_history_path
         )
 
-        # 🔹 Ajouter les résultats SQL et Python initiaux
+        # Initialize SQL and Python results in the context
         context["sql_results"] = context.get("sql_results", [])
         context["python_results"] = context.get("python_results", [])
 
-        # 🔹 Construire un résumé des messages trouvés
+        # Generate a summary of similar conversation history
         if similar_messages:
             history_summary = "\n".join(
                 [
@@ -514,14 +523,17 @@ class Pipeline:
                     for conv in similar_messages
                 ]
             )
-            logger.debug(f"🔍 Historique pertinent trouvé : \n{history_summary}")
-            # 🔹 Générer la réponse finale
+            logger.debug(
+                f"🔍 Relevant conversation history found:\n{history_summary}"
+            )  # DEBUG: Display retrieved history
+
+            # Generate a final response using LLM
             final_response = generate_final_response_with_llama(
                 context,
                 None,
                 self.reasoning_model,
                 None,
-                history_summary,  # Utilise le résumé de l'historique
+                history_summary,  # Use summarized history
             )
             add_conversation_with_embedding(
                 self.custom_history_path, question, final_response
@@ -531,19 +543,22 @@ class Pipeline:
 
         history_summary = ""
 
-        # 🔹 Ajouter l'historique résumé au contexte
+        # Store summarized history in context
         context["history_summary"] = history_summary
 
         while True:
-            logger.debug("🔄 Génération du plan...")
+            logger.debug(
+                "🔄 Generating execution plan..."
+            )  # DEBUG: Plan generation starts
             self.python_results = None
             self.sql_results = None
 
-            # 🔹 Utiliser history_summary au lieu de self.history
+            # Generate plan and Python code
             plan, python_code = command_r_plus_plan(
-                question, schema, self.contextualisation_model, history_summary
+                question, schema, self.plan_model, history_summary
             )
 
+            # Execute tools and generate results
             context, self.python_results, self.sql_results, files_generated = (
                 generate_tools_with_llm(
                     plan,
@@ -559,23 +574,28 @@ class Pipeline:
             )
 
             logger.debug(
-                f"📊 Résultats : {context['sql_results']}, {self.python_results}"
-            )
+                f"📊 Results generated - SQL: {context['sql_results']}, Python: {self.python_results}"
+            )  # DEBUG: Log results
 
+            # Verify and reflect on execution results
             reflection = self.verify_and_reflect(context, self.python_results)
-            logger.debug(f"🔁 Résultat de la réflexion : {reflection}")
+            logger.debug(
+                f"🔁 Reflection result: {reflection}"
+            )  # DEBUG: Log reflection output
 
             if "Terminé" in reflection:
-                logger.info("✅ Exécution terminée.")
+                logger.info(
+                    "✅ Execution completed successfully."
+                )  # INFO: Execution finished
                 break
 
-        # 🔹 Générer la réponse finale
+        # Generate final response from the execution context
         final_response = generate_final_response_with_llama(
             context,
             self.python_results,
             self.reasoning_model,
             files_generated,
-            None,  # Utilise le résumé de l'historique
+            None,  # Use summarized history
         )
 
         add_conversation_with_embedding(
@@ -591,22 +611,52 @@ class Pipeline:
         messages: typing.List[dict] = None,
         body: dict = None,
     ) -> typing.Union[str, typing.Generator, typing.Iterator]:
+        """
+        Processes the user message, retrieves the schema, and calls the LLM data interpreter.
+        Ensures necessary directories and database paths are set before execution.
+        """
         try:
+            # Ensure the save directory exists for the given chat_id
             save_directory = os.path.join(self.shared_data_directory, self.chat_id)
             if not os.path.exists(save_directory):
                 os.makedirs(save_directory, exist_ok=True)
-            logger.debug(f"chat_id available in pipe: {self.chat_id}")
-            self.custom_db_path = os.getenv("DB_FILE")
-            self.custom_db_path = self.custom_db_path.replace("id", str(self.chat_id))
-            self.custom_history_path = os.getenv("HISTORY_DB_FILE")
-            self.custom_history_path = self.custom_history_path.replace(
+                logger.info(
+                    f"📁 Created save directory: {save_directory}"
+                )  # INFO: Directory creation log
+
+            logger.debug(
+                f"💬 chat_id available in pipe: {self.chat_id}"
+            )  # DEBUG: Log chat_id
+
+            # Retrieve and configure database paths
+            self.custom_db_path = os.getenv("DB_FILE").replace("id", str(self.chat_id))
+            self.custom_history_path = os.getenv("HISTORY_DB_FILE").replace(
                 "id", str(self.chat_id)
             )
+
+            logger.debug(
+                f"📂 Database path set to: {self.custom_db_path}"
+            )  # DEBUG: Log DB path
+            logger.debug(
+                f"📂 History DB path set to: {self.custom_history_path}"
+            )  # DEBUG: Log history path
+
+            # Retrieve the database schema
             schema = get_schema(duckdb.connect(self.custom_db_path))
+            logger.info(
+                "✅ Database schema retrieved successfully."
+            )  # INFO: Schema retrieval successful
+
+            # Prepare the initial context with the user message
             initial_context = {"question": user_message}
+
+            # Call the LLM data interpreter to process the request
             return self.llm_data_interpreter(user_message, schema, initial_context)
+
         except Exception as e:
-            logger.error(f"Error executing request: {str(e)}")
+            logger.error(
+                f"❌ Error executing request: {str(e)}", exc_info=True
+            )  # ERROR: Log exception details
             raise HTTPException(status_code=500, detail=str(e))
 
 

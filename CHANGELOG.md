@@ -1,12 +1,16 @@
 # Récapitulatif des versions du Data Interpreter
 
+## [1.5.1] - 2025-02-14
+## Ajouté
+- Mise en place d'un Bypass afin d'exclure le processus de planification pour une question spécifique.
+
 ## [1.4.1] - 2025-02-06
 ## Modifié
 - Correction de la gestion des fichiers en entrée afin de ne pas traiter de nouveau un fichier ayant déja été traité.
 
 ## Ajouté
 - Mise en place d'un traitement par similarité afin d'éviter de refaire des recherches pour une question déja posé
-- Mise en place d'un modèle LLM spécial pour l'agent Python
+- Ajout de la possibilité d'utiliser un modèle spécial pour le code.
 
 ## [1.3.2] - 2025-01-31
 ## Modifié

@@ -64,25 +64,38 @@ logger = setup_logger()
 
 
 def extract_python(filepath):
-    """Extrait des informations complètes d'un fichier Python (.py) en utilisant le module ast et en lisant le fichier directement."""
-    logger.info(f"Début de l'extraction pour le fichier Python : {filepath}")
+    """
+    Extracts detailed information from a Python (.py) file using the `ast` module.
+    Collects module-level docstrings, functions, classes, and import statements.
+    """
+    logger.info(
+        f"📂 Starting extraction for Python file: {filepath}"
+    )  # INFO: File processing start
 
     try:
+        # Read the Python file content
         with open(filepath, "r", encoding="utf-8") as f:
             file_content = f.read()
-        logger.info(f"Fichier Python chargé avec succès : {filepath}")
+        logger.info(
+            f"✅ Successfully loaded Python file: {filepath}"
+        )  # INFO: File read successfully
     except Exception as e:
-        logger.error(f"Erreur lors de la lecture du fichier Python '{filepath}' : {e}")
+        logger.error(
+            f"❌ Error reading Python file '{filepath}': {e}"
+        )  # ERROR: File read failure
         return None
 
     try:
-        # Utiliser ast pour parser le fichier Python
+        # Parse the Python code using the `ast` module
         parsed_code = ast.parse(file_content)
-        logger.info("Code Python parsé avec succès.")
+        logger.info("✅ Successfully parsed Python code.")  # INFO: AST parsing success
     except SyntaxError as e:
-        logger.error(f"Erreur de syntaxe dans le fichier Python '{filepath}' : {e}")
+        logger.error(
+            f"❌ Syntax error in Python file '{filepath}': {e}"
+        )  # ERROR: Syntax issue detected
         return None
 
+    # Initialize extracted data structure
     extracted_data = {
         "module_code": file_content,
         "functions": [],
@@ -91,42 +104,46 @@ def extract_python(filepath):
         "docstrings": ast.get_docstring(parsed_code),
     }
 
+    # Log module-level docstring if present
     if extracted_data["docstrings"]:
-        logger.info("Docstring du module extrait.")
+        logger.info("📝 Extracted module docstring.")  # INFO: Log module docstring
     else:
-        logger.info("Aucun docstring de module trouvé.")
+        logger.info(
+            "⚠️ No module-level docstring found."
+        )  # INFO: No docstring available
 
-    # Parcourir l'arbre de syntaxe abstraite (AST)
+    # Traverse the abstract syntax tree (AST)
     for node in ast.walk(parsed_code):
         if isinstance(node, ast.FunctionDef):
             try:
+                # Extract function details
                 function_info = {
                     "name": node.name,
                     "arguments": [arg.arg for arg in node.args.args],
                     "docstring": ast.get_docstring(node),
                     "line_number": node.lineno,
-                    "content": ast.get_source_segment(
-                        file_content, node
-                    ),  # Récupérer le contenu exact de la fonction
+                    "content": ast.get_source_segment(file_content, node),
                 }
                 extracted_data["functions"].append(function_info)
                 logger.info(
-                    f"Fonction extraite : {function_info['name']} (ligne {function_info['line_number']})."
-                )
+                    f"🔧 Extracted function: {function_info['name']} (line {function_info['line_number']})."
+                )  # INFO: Log function extraction
             except Exception as e:
-                logger.error(f"Erreur lors de l'extraction d'une fonction : {e}")
+                logger.error(
+                    f"❌ Error extracting function: {e}"
+                )  # ERROR: Function extraction failure
 
         elif isinstance(node, ast.ClassDef):
             try:
+                # Extract class details
                 class_info = {
                     "name": node.name,
                     "methods": [],
                     "docstring": ast.get_docstring(node),
                     "line_number": node.lineno,
-                    "content": ast.get_source_segment(
-                        file_content, node
-                    ),  # Récupérer le contenu exact de la classe
+                    "content": ast.get_source_segment(file_content, node),
                 }
+                # Extract methods inside the class
                 for class_node in node.body:
                     if isinstance(class_node, ast.FunctionDef):
                         method_info = {
@@ -134,23 +151,25 @@ def extract_python(filepath):
                             "arguments": [arg.arg for arg in class_node.args.args],
                             "docstring": ast.get_docstring(class_node),
                             "line_number": class_node.lineno,
-                            "content": ast.get_source_segment(
-                                file_content, class_node
-                            ),  # Récupérer le contenu exact de la méthode
+                            "content": ast.get_source_segment(file_content, class_node),
                         }
                         class_info["methods"].append(method_info)
                         logger.info(
-                            f"Méthode extraite : {method_info['name']} (ligne {method_info['line_number']})."
-                        )
+                            f"🔹 Extracted method: {method_info['name']} (line {method_info['line_number']})."
+                        )  # INFO: Log method extraction
+
                 extracted_data["classes"].append(class_info)
                 logger.info(
-                    f"Classe extraite : {class_info['name']} (ligne {class_info['line_number']})."
-                )
+                    f"🏛️ Extracted class: {class_info['name']} (line {class_info['line_number']})."
+                )  # INFO: Log class extraction
             except Exception as e:
-                logger.error(f"Erreur lors de l'extraction d'une classe : {e}")
+                logger.error(
+                    f"❌ Error extracting class: {e}"
+                )  # ERROR: Class extraction failure
 
         elif isinstance(node, ast.Import) or isinstance(node, ast.ImportFrom):
             try:
+                # Extract import statements
                 import_info = {
                     "module": getattr(node, "module", None),
                     "names": [alias.name for alias in node.names],
@@ -158,10 +177,14 @@ def extract_python(filepath):
                 }
                 extracted_data["imports"].append(import_info)
                 logger.info(
-                    f"Import extrait : {import_info['names']} (ligne {import_info['line_number']})."
-                )
+                    f"📦 Extracted import: {import_info['names']} (line {import_info['line_number']})."
+                )  # INFO: Log import extraction
             except Exception as e:
-                logger.error(f"Erreur lors de l'extraction d'un import : {e}")
+                logger.error(
+                    f"❌ Error extracting import: {e}"
+                )  # ERROR: Import extraction failure
 
-    logger.info(f"Extraction terminée pour le fichier Python : {filepath}")
+    logger.info(
+        f"✅ Extraction completed for Python file: {filepath}"
+    )  # INFO: Extraction finished
     return extracted_data

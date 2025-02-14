@@ -67,44 +67,65 @@ logger = setup_logger()
 
 
 def remove_database_file():
+    """
+    Removes the database file if it exists.
+    Retrieves the database file path from environment variables and deletes it if found.
+    """
     database_path = os.getenv("DB_FILE")
+
     if os.path.exists(database_path):
         os.remove(database_path)
-        logger.info(f"Fichier '{database_path}' supprimé avec succès.")
+        logger.info(
+            f"🗑️ Successfully deleted database file: '{database_path}'"
+        )  # INFO: File deletion success
     else:
-        logger.warning(f"Le fichier '{database_path}' n'existe pas.")
+        logger.warning(
+            f"⚠️ Database file '{database_path}' does not exist."
+        )  # WARNING: File not found
 
 
 def clean_column_name(column_name):
     """
-    Nettoie le nom d'une colonne pour être compatible avec DuckDB.
+    Cleans a column name to ensure compatibility with DuckDB.
+    Handles empty names, removes accents, replaces special characters, and standardizes format.
     """
     if pd.isna(column_name) or column_name.strip() == "":
-        return "unnamed_column"
-    column_name = unidecode(column_name)  # Supprime les accents
-    column_name = column_name.replace("'", "_")
-    column_name = re.sub(r"[^a-zA-Z0-9_]", "_", column_name).lower()
-    # Supprimer les UUID éventuels du nom
+        return "unnamed_column"  # Return default name for empty columns
+
+    column_name = unidecode(column_name)  # Remove accents
+    column_name = column_name.replace("'", "_")  # Replace apostrophes with underscores
+    column_name = re.sub(
+        r"[^a-zA-Z0-9_]", "_", column_name
+    ).lower()  # Standardize format
+
+    # Remove any UUID patterns from column names
     column_name = re.sub(
         r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
         "",
         column_name,
     )
-    column_name = re.sub(r"_+", "_", column_name).strip("_")
-    # Ajouter un préfixe si le nom commence par un chiffre
+
+    column_name = re.sub(r"_+", "_", column_name).strip("_")  # Remove extra underscores
+
+    # Prefix column name if it starts with a digit
     if column_name and column_name[0].isdigit():
         column_name = "col_" + column_name
+
+    logger.info(
+        f"🛠️ Cleaned column name: {column_name}"
+    )  # INFO: Log cleaned column name
     return column_name
 
 
 def prepare_database(filepaths=None, collection_id=None):
     """
-    Parcourt la liste des fichiers, en extrait les dataframes,
-    et crée les tables dans DuckDB sans recréer celles déjà identiques.
+    Processes a list of files, extracts dataframes, and creates tables in DuckDB.
+    Ensures that identical tables are not recreated.
     """
     if not filepaths:
         return
 
+    # Collect all file paths, including those inside directories
     all_filepaths = []
     for path in filepaths:
         if os.path.isdir(path):
@@ -114,30 +135,41 @@ def prepare_database(filepaths=None, collection_id=None):
         else:
             all_filepaths.append(path)
 
+    # Determine the database path
     if collection_id is not None:
-        path = os.getenv("DB_FILE")
-        path = path.replace("id", str(collection_id))
+        path = os.getenv("DB_FILE").replace("id", str(collection_id))
         conn = duckdb.connect(path)
     else:
         conn = duckdb.connect(os.getenv("DB_FILE"))
-    logger.info(f"Fichiers à traiter : {all_filepaths}")
+
+    logger.info(
+        f"📂 Files to process: {all_filepaths}"
+    )  # INFO: Logging files being processed
 
     for filepath in all_filepaths:
-        logger.info(f"Traitement du fichier : {filepath}")
+        logger.info(
+            f"📄 Processing file: {filepath}"
+        )  # INFO: Log each file being processed
         try:
-            data = load_file_data(filepath)
+            data = load_file_data(filepath)  # Load file data into dataframes
             for sheet_name, df in data.items():
                 table_name = generate_table_name(filepath, sheet_name)
                 logger.debug(
-                    f"Création éventuelle de la table '{table_name}' pour la feuille '{sheet_name}'..."
+                    f"🔧 Checking or creating table '{table_name}' for sheet '{sheet_name}'..."  # DEBUG: Table creation process
                 )
-                create_table_from_dataframe(conn, df, table_name)
-                handle_nested_data(conn, df, table_name)
+                create_table_from_dataframe(
+                    conn, df, table_name
+                )  # Create table from dataframe
+                handle_nested_data(
+                    conn, df, table_name
+                )  # Handle nested data structures
         except ValueError as e:
-            logger.error(f"Erreur de format pour le fichier '{filepath}': {e}")
+            logger.error(
+                f"❌ Format error in file '{filepath}': {e}"
+            )  # ERROR: File format issue
         except Exception as e:
             logger.error(
-                f"Erreur inattendue lors du traitement du fichier '{filepath}': {e}"
+                f"🚨 Unexpected error while processing file '{filepath}': {e}"  # ERROR: General processing failure
             )
 
     conn.close()
@@ -145,166 +177,271 @@ def prepare_database(filepaths=None, collection_id=None):
 
 def load_file_data(filepath):
     """
-    Charge les données selon l'extension du fichier.
+    Loads data based on the file extension.
+    Supports Excel, CSV, JSON, PDF, and Python files.
     """
-    logger.info(f"Chargement des données pour le fichier : {filepath}")
+    logger.info(
+        f"📂 Loading data from file: {filepath}"
+    )  # INFO: Log file loading attempt
+
     if filepath.endswith(".xls"):
-        return pd.read_excel(filepath, sheet_name=None, engine="xlrd")
+        return pd.read_excel(filepath, sheet_name=None, engine="xlrd")  # Load .xls file
     elif filepath.endswith(".xlsx") or filepath.endswith(".xlsm"):
-        return pd.read_excel(filepath, sheet_name=None, engine="openpyxl")
+        return pd.read_excel(
+            filepath, sheet_name=None, engine="openpyxl"
+        )  # Load .xlsx or .xlsm
     elif filepath.endswith(".csv"):
         return {
-            "sheet1": pd.read_csv(filepath, sep=";", encoding="utf-8", engine="python")
+            "sheet1": pd.read_csv(
+                filepath, sep=";", encoding="utf-8", engine="python"
+            )  # Load .csv file
         }
     elif filepath.endswith(".json"):
         with open(filepath, "r", encoding="utf-8") as f:
             json_data = json.load(f)
-        return {"main": pd.json_normalize(json_data, sep="_")}
+        return {
+            "main": pd.json_normalize(json_data, sep="_")
+        }  # Load JSON data as a DataFrame
     elif filepath.endswith(".pdf"):
-        return process_pdf_file(filepath)
+        return process_pdf_file(filepath)  # Process PDF file
     elif filepath.endswith(".py"):
-        return process_python_file(filepath)
+        return process_python_file(filepath)  # Process Python script
     else:
-        raise ValueError("Format de fichier non pris en charge.")
+        logger.error(
+            f"❌ Unsupported file format: {filepath}"
+        )  # ERROR: Unsupported file type
+        raise ValueError("Unsupported file format.")
 
 
 def process_pdf_file(filepath):
-    logger.info(f"Traitement du fichier PDF : {filepath}")
+    """
+    Processes a PDF file by extracting text and images.
+    Converts extracted data into DataFrames for further analysis.
+    """
+    logger.info(f"📄 Processing PDF file: {filepath}")  # INFO: Start processing PDF
+
+    # Extract text and images from the PDF
     extracted_text, images_data = extract_pdf(filepath)
     data = {}
+
+    # Store extracted text in a DataFrame if available
     if extracted_text:
         data["text"] = pd.DataFrame([{"content": t} for t in extracted_text])
+        logger.info(
+            f"📝 Extracted text from PDF: {len(extracted_text)} entries"
+        )  # INFO: Text extraction summary
+
+    # Store extracted images with OCR results in a DataFrame if available
     if images_data:
         data["images"] = pd.DataFrame(images_data)
+        logger.info(
+            f"🖼️ Extracted images from PDF: {len(images_data)} images"
+        )  # INFO: Image extraction summary
+
     return data
 
 
 def process_python_file(filepath):
-    logger.info(f"Traitement du fichier Python : {filepath}")
+    """
+    Processes a Python (.py) file by extracting functions, classes, imports, and module code.
+    Converts extracted data into DataFrames for structured analysis.
+    """
+    logger.info(
+        f"🐍 Processing Python file: {filepath}"
+    )  # INFO: Start processing Python file
+
+    # Extract structured data from the Python script
     extracted_data = extract_python(filepath)
     data = {}
+
+    # Store extracted functions in a DataFrame if available
     if "functions" in extracted_data:
         data["functions"] = pd.DataFrame(extracted_data["functions"])
+        logger.info(
+            f"🛠️ Extracted functions: {len(extracted_data['functions'])}"
+        )  # INFO: Function extraction summary
+
+    # Store extracted classes in a DataFrame if available
     if "classes" in extracted_data:
         data["classes"] = pd.DataFrame(extracted_data["classes"])
+        logger.info(
+            f"📦 Extracted classes: {len(extracted_data['classes'])}"
+        )  # INFO: Class extraction summary
+
+    # Store extracted imports in a DataFrame if available
     if "imports" in extracted_data:
         data["imports"] = pd.DataFrame(extracted_data["imports"])
+        logger.info(
+            f"📦 Extracted imports: {len(extracted_data['imports'])}"
+        )  # INFO: Imports extraction summary
+
+    # Store full module code in a DataFrame if available
     if "module_code" in extracted_data:
         data["module_code"] = pd.DataFrame(
             [{"module_code": extracted_data["module_code"]}]
         )
+        logger.info("📜 Extracted full module code.")  # INFO: Module code extraction
+
     return data
 
 
 def generate_table_name(filepath, sheet_name):
     """
-    Génère un nom de table SANS UUID, même si le fichier se nomme
-    {uuid}_trucchose.pdf.
+    Generates a table name WITHOUT UUID, even if the file is named {uuid}_something.pdf.
+    Ensures the name is compatible with DuckDB by removing special characters.
     """
-    base = os.path.splitext(os.path.basename(filepath))[0]
-    # Supprimer l'UUID éventuel au début (ex: "8a2da82f-1cd5-42b6-91bb-d0c2282f57d0_...")
-    base = re.sub(UUID_REGEX, "", base)  # retire l'UUID + underscore
-    base = re.sub(r"[^A-Za-z0-9_]+", "_", base).strip("_").lower()
+    base = os.path.splitext(os.path.basename(filepath))[
+        0
+    ]  # Extract file name without extension
 
+    # Remove potential UUID at the beginning (e.g., "8a2da82f-1cd5-42b6-91bb-d0c2282f57d0_something")
+    base = re.sub(UUID_REGEX, "", base)  # Remove UUID and underscore
+    base = (
+        re.sub(r"[^A-Za-z0-9_]+", "_", base).strip("_").lower()
+    )  # Normalize base name
+
+    # Normalize sheet name
     sheet = re.sub(r"[^A-Za-z0-9_]+", "_", sheet_name).strip("_").lower()
 
+    # Combine file name and sheet name
     table_name = f"{base}_{sheet}"
-    # on évite que ça commence par un chiffre
+
+    # Ensure the table name does not start with a digit
     if table_name and table_name[0].isdigit():
         table_name = "t_" + table_name
 
-    logger.debug(f"Nom de table final: {table_name}")
+    logger.debug(
+        f"🛠️ Final table name generated: {table_name}"
+    )  # DEBUG: Log final table name
     return table_name
 
 
 def table_exists_with_same_schema(conn, df, table_name):
     """
-    Vérifie si la table `table_name` existe déjà dans la base
-    ET si son schéma correspond exactement aux colonnes de `df`.
-    S'il y a correspondance parfaite, on considère que c'est un doublon.
+    Checks if the table `table_name` already exists in the database
+    AND if its schema matches exactly with the columns of `df`.
+    If there is a perfect match, the table is considered a duplicate.
     """
-    # Récupérer la liste des tables existantes
+    logger.debug(
+        f"🔍 Checking if table '{table_name}' exists with the same schema."
+    )  # DEBUG: Start schema check
+
+    # Retrieve the list of existing tables
     tables = [x[0] for x in conn.execute("SHOW TABLES").fetchall()]
     if table_name not in tables:
-        return False  # La table n'existe pas encore
-
-    # Décrire la table existante
-    # duckdb DESC <table> renvoie un tableau du type (column_name, column_type, null, key, default, extra)
-    schema_info = conn.execute(f"DESCRIBE {table_name}").fetchall()
-
-    # Extraire seulement les noms de colonnes et types DuckDB
-    existing_cols = [(row[0].lower(), row[1].lower()) for row in schema_info]
-
-    # Construire la liste (colName, duckdbType) attendue
-    desired_cols = []
-    for col in df.columns:
-        colname_clean = clean_column_name(col)
-        coltype = map_dtype_to_duckdb_type(df[col].dtype, df[col])
-        desired_cols.append((colname_clean.lower(), coltype.lower()))
-
-    # Comparaison stricte (même nombre de colonnes, mêmes noms, mêmes types, dans le même ordre)
-    if len(existing_cols) != len(desired_cols):
+        logger.info(
+            f"✅ Table '{table_name}' does not exist. It can be created."
+        )  # INFO: Table does not exist
         return False
 
-    return existing_cols == desired_cols
+    # Retrieve schema of existing table
+    schema_info = conn.execute(f"DESCRIBE {table_name}").fetchall()
+
+    # Extract column names and types from the existing table
+    existing_cols = [(row[0].lower(), row[1].lower()) for row in schema_info]
+
+    # Build the expected column structure based on the DataFrame
+    desired_cols = []
+    for col in df.columns:
+        colname_clean = clean_column_name(col)  # Clean column name
+        coltype = map_dtype_to_duckdb_type(
+            df[col].dtype, df[col]
+        )  # Convert to DuckDB type
+        desired_cols.append((colname_clean.lower(), coltype.lower()))
+
+    # Compare schema: Same number of columns, same names, same types, in the same order
+    if len(existing_cols) != len(desired_cols):
+        logger.info(
+            f"⚠️ Schema mismatch: Table '{table_name}' exists but has a different structure."
+        )  # INFO: Schema mismatch
+        return False
+
+    if existing_cols == desired_cols:
+        logger.info(
+            f"🔄 Table '{table_name}' already exists with the same schema. Skipping creation."
+        )  # INFO: Table already exists with the same schema
+        return True
+
+    return False
 
 
 def create_table_from_dataframe(conn, df, table_name):
-    logger.info(f"Création éventuelle de la table '{table_name}' dans DuckDB...")
+    """
+    Creates a table in DuckDB from a DataFrame, ensuring schema compatibility.
+    If the table exists but with a different schema, it is dropped and recreated.
+    """
+    logger.info(
+        f"🛠️ Attempting to create table '{table_name}' in DuckDB..."
+    )  # INFO: Table creation start
 
-    # Vérifier si la table existe déjà à l'identique
+    # Check if the table already exists with the same schema
     if table_exists_with_same_schema(conn, df, table_name):
         logger.info(
-            f"Table '{table_name}' existe déjà avec le même schéma, pas de création."
-        )
-        return  # On ne recrée pas
+            f"✅ Table '{table_name}' already exists with the same schema. Skipping creation."
+        )  # INFO: Table exists
+        return
 
-    # Sinon, on crée la table (ou on la recrée si le schéma a changé)
-    # Pour éviter un conflit, on peut DROP la table s'il existe un "table_name" au schéma différent
+    # Drop the table if it exists with a different schema
     tables = [x[0] for x in conn.execute("SHOW TABLES").fetchall()]
     if table_name in tables:
         logger.info(
-            f"Table '{table_name}' existe déjà mais le schéma diffère, on la DROP avant recréation."
-        )
+            f"⚠️ Table '{table_name}' exists but has a different schema. Dropping before recreation."
+        )  # INFO: Schema mismatch
         conn.execute(f"DROP TABLE {table_name}")
 
-    # Prépare la requête de CREATE TABLE
+    # Construct the CREATE TABLE query
     column_definitions = []
     for column_name, dtype in df.dtypes.items():
-        col_clean = clean_column_name(column_name)
-        column_type = map_dtype_to_duckdb_type(dtype, df[column_name])
+        col_clean = clean_column_name(column_name)  # Clean column name
+        column_type = map_dtype_to_duckdb_type(
+            dtype, df[column_name]
+        )  # Convert to DuckDB type
         column_definitions.append(f'"{col_clean}" {column_type}')
 
     column_definitions_str = ", ".join(column_definitions)
     create_table_query = f"CREATE TABLE {table_name} ({column_definitions_str})"
 
+    # Execute table creation query
     try:
         conn.execute(create_table_query)
-        logger.info(f"Table '{table_name}' créée avec succès.")
+        logger.info(
+            f"🎉 Table '{table_name}' successfully created."
+        )  # INFO: Table created successfully
     except Exception as e:
-        logger.error(f"Erreur SQL lors de la création de la table {table_name}: {e}")
+        logger.error(
+            f"❌ SQL error while creating table '{table_name}': {e}"
+        )  # ERROR: SQL execution failed
         return
 
-    # Insertion par paquets
+    # Insert data into the newly created table
     try:
         if not df.empty:
-            batch_size = max(1, len(df) // 500)  # découpage en ~500 lignes par lot
+            batch_size = max(1, len(df) // 500)  # Split into ~500 row batches
             for chunk in np.array_split(df, batch_size):
                 conn.register("temp_chunk", chunk)
                 conn.execute(f"INSERT INTO {table_name} SELECT * FROM temp_chunk")
-        logger.info(f"Données insérées dans '{table_name}' avec succès.")
+        logger.info(
+            f"📊 Data successfully inserted into '{table_name}'."
+        )  # INFO: Data insertion success
     except Exception as e:
-        logger.error(f"Erreur SQL lors de l'insertion dans {table_name}: {e}")
-    logger.info(f"Table '{table_name}' opération terminée.")
+        logger.error(
+            f"❌ SQL error during data insertion into '{table_name}': {e}"
+        )  # ERROR: Data insertion failed
+
+    logger.info(
+        f"✅ Table '{table_name}' operation completed."
+    )  # INFO: Operation finished
 
 
 def handle_nested_data(conn, df, base_table_name):
     """
-    Gère les colonnes contenant des données imbriquées en créant des tables supplémentaires.
+    Handles nested data columns (lists or dictionaries) by creating separate tables.
     """
-    logger.info(f"Gestion des données imbriquées pour la table '{base_table_name}'...")
+    logger.info(
+        f"🔍 Handling nested data for table '{base_table_name}'..."
+    )  # INFO: Start processing
 
-    # Supprime un éventuel UUID
+    # Remove any potential UUID from the table name
     base_table_name = re.sub(
         r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
         "",
@@ -312,24 +449,40 @@ def handle_nested_data(conn, df, base_table_name):
     ).strip("_")
 
     for column in df.columns:
-        # On check si la colonne contient parfois dict ou list
+        # Check if the column contains nested data (list or dict)
         if df[column].apply(lambda x: isinstance(x, (list, dict))).any():
-            logger.debug(f"Colonne imbriquée détectée : {column}")
+            logger.debug(
+                f"📌 Nested column detected: {column}"
+            )  # DEBUG: Found nested data
+
             nested_entries = []
             for _, row in df.iterrows():
                 value = row[column]
                 if isinstance(value, list):
-                    nested_entries.extend(value)
+                    nested_entries.extend(value)  # Flatten list entries
                 elif isinstance(value, dict):
-                    nested_entries.append(value)
+                    nested_entries.append(value)  # Store dictionary entries
 
             if nested_entries:
-                nested_df = pd.json_normalize(nested_entries, sep="_")
+                nested_df = pd.json_normalize(
+                    nested_entries, sep="_"
+                )  # Convert to DataFrame
                 nested_table_name = f"{base_table_name}_{clean_column_name(column)}"
-                create_table_from_dataframe(conn, nested_df, nested_table_name)
+                logger.info(
+                    f"🆕 Creating nested table '{nested_table_name}'..."
+                )  # INFO: Creating a new table
+                create_table_from_dataframe(
+                    conn, nested_df, nested_table_name
+                )  # Create the nested table
 
 
 def map_dtype_to_duckdb_type(dtype, column_data):
+    """
+    Maps a Pandas dtype to the appropriate DuckDB data type.
+    """
+    logger.info(f"🔄 Mapping dtype '{dtype}' to DuckDB type.")  # INFO: Start mapping
+
+    # Define mapping of NumPy/Pandas dtypes to DuckDB types
     type_mapping = {
         np.integer: "INTEGER",
         np.floating: "DOUBLE",
@@ -337,40 +490,67 @@ def map_dtype_to_duckdb_type(dtype, column_data):
         np.datetime64: "TIMESTAMP",
         object: lambda: (
             "DOUBLE"
-            if column_data.apply(is_float).all()
+            if column_data.apply(is_float).all()  # Check if column contains only floats
             else (
                 "INTEGER"
-                if column_data.apply(is_integer).all()
+                if column_data.apply(
+                    is_integer
+                ).all()  # Check if column contains only integers
                 else "TIMESTAMP" if column_data.apply(is_date).all() else "TEXT"
-            )
+            )  # Check if column contains dates, otherwise default to TEXT
         ),
     }
+
     base_type = dtype.type
-    return (
+    mapped_type = (
         type_mapping.get(base_type, "TEXT")()
-        if callable(type_mapping.get(base_type))
-        else type_mapping.get(base_type, "TEXT")
+        if callable(type_mapping.get(base_type))  # If callable, execute function
+        else type_mapping.get(base_type, "TEXT")  # Otherwise, use predefined mapping
     )
+
+    logger.debug(
+        f"✅ Mapped '{dtype}' to DuckDB type '{mapped_type}'."
+    )  # DEBUG: Final type selection
+    return mapped_type
 
 
 def is_float(value):
+    """
+    Checks if a given value can be converted to a float.
+    """
     try:
-        float(value)
+        float(value)  # Attempt to convert to float
         return True
-    except (ValueError, TypeError):
+    except (ValueError, TypeError):  # Catch conversion errors
+        logger.debug(f"❌ Value '{value}' is not a float.")  # DEBUG: Failed conversion
         return False
 
 
 def is_integer(value):
+    """
+    Checks if a given value can be converted to an integer without losing precision.
+    """
     try:
-        return float(value).is_integer()
-    except (ValueError, TypeError):
+        result = float(
+            value
+        ).is_integer()  # Convert to float and check if it's an integer
+        return result
+    except (ValueError, TypeError):  # Catch conversion errors
+        logger.debug(
+            f"❌ Value '{value}' is not an integer."
+        )  # DEBUG: Failed conversion
         return False
 
 
 def is_date(value):
+    """
+    Checks if a given value can be converted to a valid date using Pandas.
+    """
     try:
-        pd.to_datetime(value)
+        pd.to_datetime(value)  # Attempt to convert the value to a datetime format
         return True
-    except (ValueError, TypeError):
+    except (ValueError, TypeError):  # Catch conversion errors
+        logger.debug(
+            f"❌ Value '{value}' is not a valid date."
+        )  # DEBUG: Failed conversion
         return False

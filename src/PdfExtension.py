@@ -64,73 +64,84 @@ logger = setup_logger()
 
 
 def extract_pdf(filepath):
-    """Extrait le texte et les images d'un PDF, y compris le texte OCR des images."""
-    logger.info(f"Début de l'extraction pour le fichier PDF : {filepath}")
+    """
+    Extracts text and images from a PDF, including OCR-processed text from images.
+    Uses PyMuPDF (fitz) for text extraction and pytesseract for OCR on images.
+    """
+    logger.info(
+        f"📂 Starting extraction for PDF file: {filepath}"
+    )  # INFO: File processing start
 
-    # Extraction du texte et des images du PDF
+    # Initialize storage for extracted text and images
     extracted_text = []
     images_data = []
 
     try:
-        # Ouvrir le document PDF avec PyMuPDF (fitz)
+        # Open the PDF document with PyMuPDF (fitz)
         pdf_document = fitz.open(filepath)
-        logger.info(f"Nombre de pages dans le PDF '{filepath}' : {len(pdf_document)}")
+        logger.info(
+            f"📄 Number of pages in PDF '{filepath}': {len(pdf_document)}"
+        )  # INFO: Log page count
     except Exception as e:
-        logger.error(f"Erreur lors de l'ouverture du PDF '{filepath}' : {e}")
+        logger.error(
+            f"❌ Error opening PDF '{filepath}': {e}"
+        )  # ERROR: PDF opening failure
         return extracted_text, images_data
 
+    # Iterate through each page of the PDF
     for page_num in range(len(pdf_document)):
         try:
-            # Extraction du texte de la page avec PyMuPDF
+            # Extract text from the current page
             page = pdf_document.load_page(page_num)
             pdf_text = page.get_text()
             if pdf_text.strip():
                 logger.info(
-                    f"Texte extrait de la page {page_num} : {pdf_text[:200]}..."
-                )  # Premier 200 caractères
+                    f"📝 Extracted text from page {page_num}: {pdf_text[:200]}..."
+                )  # INFO: Log first 200 characters
                 extracted_text.append({"page": page_num, "content": pdf_text})
             else:
                 logger.info(
-                    f"Aucun texte extrait de la page {page_num} du PDF '{filepath}'."
-                )
+                    f"⚠️ No text extracted from page {page_num} in '{filepath}'."
+                )  # INFO: No text found
         except Exception as e:
             logger.error(
-                f"Erreur lors de l'extraction du texte de la page {page_num} : {e}"
-            )
+                f"❌ Error extracting text from page {page_num}: {e}"
+            )  # ERROR: Text extraction failure
             continue
 
-        # Extraction des images de la page
+        # Extract images from the current page
         try:
             images = page.get_images(full=True)
             logger.info(
-                f"Nombre d'images trouvées sur la page {page_num} : {len(images)}"
-            )
+                f"🖼️ Number of images found on page {page_num}: {len(images)}"
+            )  # INFO: Log image count
 
             for img_index, img in enumerate(images):
                 try:
+                    # Extract and preprocess the image for OCR
                     xref = img[0]
                     base_image = pdf_document.extract_image(xref)
                     image_bytes = base_image["image"]
                     image = Image.open(io.BytesIO(image_bytes))
 
-                    # Prétraitement de l'image pour l'OCR
+                    # Enhance image for better OCR results
                     image = image.convert("L")
                     image = ImageEnhance.Contrast(image).enhance(2)
                     image = image.filter(ImageFilter.SHARPEN)
                     image = image.resize((image.width * 2, image.height * 2))
 
-                    # Utilisation d'OCR pour extraire le texte des images
+                    # Perform OCR on the image
                     ocr_text = pytesseract.image_to_string(
                         image, config="--psm 6", lang="eng"
                     )
                     if ocr_text.strip():
                         logger.info(
-                            f"Texte OCR extrait de l'image {img_index} sur la page {page_num} : {ocr_text[:200]}..."
-                        )
+                            f"🔠 OCR extracted text from image {img_index} on page {page_num}: {ocr_text[:200]}..."
+                        )  # INFO: Log first 200 characters
                     else:
                         logger.info(
-                            f"Aucun texte OCR extrait de l'image {img_index} sur la page {page_num}."
-                        )
+                            f"⚠️ No OCR text extracted from image {img_index} on page {page_num}."
+                        )  # INFO: No OCR text found
 
                     images_data.append(
                         {
@@ -141,14 +152,16 @@ def extract_pdf(filepath):
                     )
                 except Exception as e:
                     logger.error(
-                        f"Erreur lors du traitement de l'image {img_index} sur la page {page_num} : {e}"
-                    )
+                        f"❌ Error processing image {img_index} on page {page_num}: {e}"
+                    )  # ERROR: Image processing failure
                     continue
         except Exception as e:
             logger.error(
-                f"Erreur lors de l'extraction des images de la page {page_num} : {e}"
-            )
+                f"❌ Error extracting images from page {page_num}: {e}"
+            )  # ERROR: Image extraction failure
             continue
 
-    logger.info(f"Extraction terminée pour le fichier PDF : {filepath}")
+    logger.info(
+        f"✅ Extraction completed for PDF file: {filepath}"
+    )  # INFO: Extraction finished
     return extracted_text, images_data
