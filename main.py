@@ -146,6 +146,9 @@ def llm_data_interpreter(question, schema, initial_context):
     context["sql_results"] = context.get("sql_results", [])
     context["python_results"] = context.get("python_results", [])
 
+    # Initialize an empty history summary
+    history_summary = ""
+
     if similar_messages or "#pass" in question:
         history_summary = ""
         if similar_messages:
@@ -158,21 +161,23 @@ def llm_data_interpreter(question, schema, initial_context):
             logger.debug(f"🔍 Relevant conversation history found: \n{history_summary}")
 
         # Generate a final response based on historical data
-        final_response = generate_final_response_with_llama(
-            context,
-            None,
-            reasoning_model,
-            None,
-            history_summary,
-        )
-        add_conversation_with_embedding(
-            os.getenv("HISTORY_DB_FILE"), question, final_response
-        )
+        if "#force" not in question:
+            final_response = generate_final_response_with_llama(
+                context,
+                None,
+                reasoning_model,
+                None,
+                history_summary,
+            )
+            add_conversation_with_embedding(
+                os.getenv("HISTORY_DB_FILE"), question, final_response
+            )
 
-        return final_response
+            return final_response
 
-    # Initialize an empty history summary
-    history_summary = ""
+    if "#force" in question:
+        question = question.replace("#force", "")
+
     context["history_summary"] = history_summary
 
     while True:

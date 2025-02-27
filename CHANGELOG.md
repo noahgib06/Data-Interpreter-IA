@@ -1,8 +1,15 @@
 # Récapitulatif des versions du Data Interpreter
 
+## [1.5.2] - 2025-02-27
+## Modifié
+- Répercution des modifications de l'ajout du Bypass sur le script main de la pipeline OpenWebui
+
+## Ajouté 
+- Mise en place d'un flag #force afin de recommencer un processus de planification si telle est la volonté.
+
 ## [1.5.1] - 2025-02-14
 ## Ajouté
-- Mise en place d'un Bypass afin d'exclure le processus de planification pour une question spécifique.
+- Mise en place d'un Bypass afin d'exclure le processus de planification pour une question spécifique. (#pass)
 
 ## [1.4.1] - 2025-02-06
 ## Modifié

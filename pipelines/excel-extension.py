@@ -515,8 +515,10 @@ class Pipeline:
         context["sql_results"] = context.get("sql_results", [])
         context["python_results"] = context.get("python_results", [])
 
+        history_summary = ""
+
         # Generate a summary of similar conversation history
-        if similar_messages:
+        if similar_messages or "#pass" in question:
             history_summary = "\n".join(
                 [
                     f"User: {conv['question']}\nAssistant: {conv['response']}"
@@ -527,21 +529,23 @@ class Pipeline:
                 f"🔍 Relevant conversation history found:\n{history_summary}"
             )  # DEBUG: Display retrieved history
 
-            # Generate a final response using LLM
-            final_response = generate_final_response_with_llama(
-                context,
-                None,
-                self.reasoning_model,
-                None,
-                history_summary,  # Use summarized history
-            )
-            add_conversation_with_embedding(
-                self.custom_history_path, question, final_response
-            )
+            if "#force" not in question:
+                # Generate a final response using LLM
+                final_response = generate_final_response_with_llama(
+                    context,
+                    None,
+                    self.reasoning_model,
+                    None,
+                    history_summary,  # Use summarized history
+                )
+                add_conversation_with_embedding(
+                    self.custom_history_path, question, final_response
+                )
 
-            return final_response
+                return final_response
 
-        history_summary = ""
+        if "#force" in question:
+            question = question.replace("#force", "")
 
         # Store summarized history in context
         context["history_summary"] = history_summary
