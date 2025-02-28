@@ -1,5 +1,10 @@
 # Récapitulatif des versions du Data Interpreter
 
+## [1.5.3] - 2025-02-28
+## Modifié
+- Conversion des caractères alphabétiques de la question ainsi que du dataFrame des fichiers Excel en minuscule.
+- Correction de la détection des séparateurs ainsi que des types de données dans les fichiers CSV.
+
 ## [1.5.2] - 2025-02-27
 ## Modifié
 - Répercution des modifications de l'ajout du Bypass sur le script main de la pipeline OpenWebui

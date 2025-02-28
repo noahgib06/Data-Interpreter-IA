@@ -499,6 +499,7 @@ class Pipeline:
         Retrieves relevant conversation history, processes SQL and Python results,
         and generates a final response.
         """
+        question = question.lower()
         setup_history_database(self.custom_history_path)
         logger.info(
             f"🚀 Starting LLM data interpreter with question: {question}"

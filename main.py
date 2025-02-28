@@ -131,6 +131,7 @@ def llm_data_interpreter(question, schema, initial_context):
     """
     Interprets user queries using LLM, leveraging historical data and generating responses through SQL and Python execution.
     """
+    question = question.lower()
     history_path = os.getenv("HISTORY_DB_FILE")
     setup_history_database(history_path)
     logger.info(f"🚀 Starting LLM data interpreter for question: {question}")
