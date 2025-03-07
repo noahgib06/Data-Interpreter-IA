@@ -1,3 +1,4 @@
+import csv
 import json
 import logging
 import os
@@ -9,7 +10,6 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 from unidecode import unidecode
-import csv
 
 from PdfExtension import extract_pdf
 from PythonExtension import extract_python
@@ -175,11 +175,13 @@ def prepare_database(filepaths=None, collection_id=None):
 
     conn.close()
 
+
 def convert_to_lowercase(df):
     """
     Convertit les valeurs de type chaîne en minuscules dans un DataFrame.
     """
     return df.applymap(lambda x: x.lower() if isinstance(x, str) else x)
+
 
 def detect_delimiter(filepath):
     """
@@ -195,6 +197,7 @@ def detect_delimiter(filepath):
             return delimiter
         except csv.Error:
             return ","  # Par défaut, on suppose une virgule si la détection échoue
+
 
 def infer_column_types(df, date_threshold=0.8, numeric_threshold=0.8):
     for col in df.columns:
@@ -218,19 +221,22 @@ def infer_column_types(df, date_threshold=0.8, numeric_threshold=0.8):
         if valid_numeric_ratio >= numeric_threshold:
             # Check if all numeric values are integer-like
             # --- Fix here: use a lambda instead of float.is_integer ---
-            is_all_integers = numeric_series.dropna().apply(lambda x: x.is_integer()).all()
+            is_all_integers = (
+                numeric_series.dropna().apply(lambda x: x.is_integer()).all()
+            )
             if is_all_integers:
-                df[col] = pd.to_numeric(df[col].str.replace(",", "."), errors="coerce").astype("Int64")
+                df[col] = pd.to_numeric(
+                    df[col].str.replace(",", "."), errors="coerce"
+                ).astype("Int64")
             else:
-                df[col] = pd.to_numeric(df[col].str.replace(",", "."), errors="coerce", downcast="float")
+                df[col] = pd.to_numeric(
+                    df[col].str.replace(",", "."), errors="coerce", downcast="float"
+                )
         else:
             # Otherwise keep as string
             pass
 
     return df
-
-
-
 
 
 def load_file_data(filepath):
@@ -246,7 +252,9 @@ def load_file_data(filepath):
         data = pd.read_excel(filepath, sheet_name=None, engine="xlrd")  # Load .xls file
         return {sheet: convert_to_lowercase(df) for sheet, df in data.items()}
     elif filepath.endswith(".xlsx") or filepath.endswith(".xlsm"):
-        data = pd.read_excel(filepath, sheet_name=None, engine="openpyxl")  # Load .xlsx or .xlsm
+        data = pd.read_excel(
+            filepath, sheet_name=None, engine="openpyxl"
+        )  # Load .xlsx or .xlsm
         return {sheet: convert_to_lowercase(df) for sheet, df in data.items()}
     elif filepath.endswith(".csv"):
         delimiter = detect_delimiter(filepath)
@@ -559,19 +567,27 @@ def map_dtype_to_duckdb_type(dtype, column_data):
     #    (This captures "int64", "int32", "float32", etc.)
     if "int" in dtype_str:
         mapped_type = "INTEGER"  # Or "BIGINT" if you prefer
-        logger.debug(f"✅ Mapped extension dtype '{dtype}' to DuckDB type '{mapped_type}'.")
+        logger.debug(
+            f"✅ Mapped extension dtype '{dtype}' to DuckDB type '{mapped_type}'."
+        )
         return mapped_type
     if "float" in dtype_str:
         mapped_type = "DOUBLE"
-        logger.debug(f"✅ Mapped extension dtype '{dtype}' to DuckDB type '{mapped_type}'.")
+        logger.debug(
+            f"✅ Mapped extension dtype '{dtype}' to DuckDB type '{mapped_type}'."
+        )
         return mapped_type
     if "bool" in dtype_str:
         mapped_type = "BOOLEAN"
-        logger.debug(f"✅ Mapped extension dtype '{dtype}' to DuckDB type '{mapped_type}'.")
+        logger.debug(
+            f"✅ Mapped extension dtype '{dtype}' to DuckDB type '{mapped_type}'."
+        )
         return mapped_type
     if "datetime" in dtype_str:
         mapped_type = "TIMESTAMP"
-        logger.debug(f"✅ Mapped extension dtype '{dtype}' to DuckDB type '{mapped_type}'.")
+        logger.debug(
+            f"✅ Mapped extension dtype '{dtype}' to DuckDB type '{mapped_type}'."
+        )
         return mapped_type
 
     # 2) If not matched above, fall back to the "base_type" approach
@@ -591,9 +607,7 @@ def map_dtype_to_duckdb_type(dtype, column_data):
             else (
                 "INTEGER"
                 if column_data.apply(is_integer).all()
-                else "TIMESTAMP"
-                if column_data.apply(is_date).all()
-                else "TEXT"
+                else "TIMESTAMP" if column_data.apply(is_date).all() else "TEXT"
             )
         ),
     }
@@ -609,7 +623,6 @@ def map_dtype_to_duckdb_type(dtype, column_data):
     # 4) Fallback to TEXT if nothing matched
     logger.debug(f"✅ Fallback: mapped '{dtype}' to TEXT.")
     return "TEXT"
-
 
 
 def is_float(value):

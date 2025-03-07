@@ -1,5 +1,9 @@
 # Récapitulatif des versions du Data Interpreter
 
+## [1.5.4] - 2025-03-07
+## Ajouté
+- Mise en place de scripts sh afin de pouvoir aisément lancer les modes pipelines et terminal incluant une modification automatisée des variables d'environnements du fichier .env.
+
 ## [1.5.3] - 2025-02-28
 ## Modifié
 - Conversion des caractères alphabétiques de la question ainsi que du dataFrame des fichiers Excel en minuscule.

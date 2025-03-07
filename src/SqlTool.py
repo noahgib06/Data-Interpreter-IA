@@ -116,7 +116,6 @@ def get_schema(con):
                 {"name": column[1], "type": column[2]} for column in columns_info
             ]
 
-
             logger.info(
                 f"📑 Schema for table '{table_name}': {schema_info[table_name]}"
             )  # INFO: Table schema logged
