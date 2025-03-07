@@ -15,4 +15,4 @@ fi
 
 # 2. Lancer Docker Compose pour démarrer le pipeline
 echo "Lancement du mode Pipeline avec docker-compose..."
-docker-compose up --build
+docker compose up --build
