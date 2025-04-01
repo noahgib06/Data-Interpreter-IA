@@ -6,13 +6,27 @@ echo "Installation des dépendances Python..."
 pip install -r requirements.txt
 
 # 2. Modifier le fichier de configuration pour activer le mode Terminal
-CONFIG_FILE="./.env"  # Adapte ce nom de fichier si besoin
+CONFIG_FILE=".env"
 if [ -f "$CONFIG_FILE" ]; then
     echo "Configuration du mode Terminal dans $CONFIG_FILE"
-    # Pour chaque ligne contenant "Mode Terminal", on s'assure qu'elle est décommentée
-    sed -i '/Mode Terminal/ s/^#//' "$CONFIG_FILE"
-    # Pour chaque ligne contenant "Mode Pipeline", on ajoute un "#" si ce n'est pas déjà le cas
-    sed -i '/Mode Pipeline/ { /^[^#]/ s/^/#/ }' "$CONFIG_FILE"
+
+    # Choix du suffixe pour sed selon OS ('' pour macOS, rien pour Linux)
+    SED_SUFFIX=""
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        SED_SUFFIX=".bak"
+    fi
+
+    # Décommenter les lignes contenant "Mode Terminal"
+    sed -i "$SED_SUFFIX" '/Mode Terminal/ s/^[[:space:]]*#//' "$CONFIG_FILE"
+
+    # Commenter les lignes contenant "Mode Pipeline" si elles ne sont pas déjà commentées
+    sed -i "$SED_SUFFIX" '/Mode Pipeline/ s/^[[:space:]]*\([^#]\)/#\1/' "$CONFIG_FILE"
+
+    # Nettoyage du fichier de sauvegarde temporaire sur macOS
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        rm -f "${CONFIG_FILE}.bak"
+    fi
+
 else
     echo "Fichier de configuration $CONFIG_FILE non trouvé. Vérifie que le fichier existe."
 fi
@@ -20,3 +34,4 @@ fi
 # 3. Lancer main.py en transmettant les arguments (fichiers à traiter)
 echo "Lancement du mode Terminal avec main.py..."
 python main.py "$@"
+
