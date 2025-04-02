@@ -1,5 +1,6 @@
 import os
 import sys
+from readline import clear_history
 
 # Add application path to system path
 sys.path.append("/app/src")
@@ -34,6 +35,8 @@ LOG_FILE_MAIN = os.getenv("LOG_FILE_main", "Logs/main.log")
 UUID_REGEX = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_"
 )
+
+
 
 
 # Map log levels to logging module
@@ -189,8 +192,31 @@ class Pipeline:
             )  # Error log: general initialization error
             raise RuntimeError("General error during model initialization.")
 
+    def clear_history(self):
+        try:
+            logger.info("Running startup cleanup...")
+
+            db_path = f"/app/backend/data/webui.db"
+            con = duckdb.connect(database=db_path, read_only=True)
+
+            chat_ids = con.execute("SELECT id FROM chat").fetchall()
+            chat_ids_set = {str(row[0]) for row in chat_ids}
+
+            data_folder = self.shared_data_directory
+            for folder in os.listdir(data_folder):
+                folder_path = os.path.join(data_folder, folder)
+
+                if os.path.isdir(folder_path) and folder not in chat_ids_set:
+                    shutil.rmtree(folder_path)
+                    logger.info(f"Folder deleted : {folder_path}")
+
+            logger.info("History Cache Cleanup complete.")
+
+        except Exception as e:
+            logger.error(f"Erreur lors du nettoyage des dossiers: {e}", exc_info=True)
+
     async def on_startup(self):
-        pass
+        self.clear_history()
 
     def detect_and_process_changes(self):
         """
@@ -329,6 +355,8 @@ class Pipeline:
                 base_url="http://host.docker.internal:11434",
             )
 
+        clear_history()
+
         # Extract chat_id from metadata
         self.chat_id = body.get("metadata", {}).get("chat_id", "unknown_chat")
         if self.chat_id is None:
@@ -336,6 +364,8 @@ class Pipeline:
                 "🚨 ERROR: chat_id is None, correcting to 'unknown_chat'"
             )  # ERROR: chat_id missing
             self.chat_id = "unknown_chat"
+
+        self.clear_history()
 
         logger.debug(
             f"📌 DEBUG: Extracted chat_id → {self.chat_id}"
@@ -654,6 +684,8 @@ class Pipeline:
 
             # Prepare the initial context with the user message
             initial_context = {"question": user_message}
+
+            response = self.reasoning_model.invoke(user_message)
 
             # Call the LLM data interpreter to process the request
             return self.llm_data_interpreter(user_message, schema, initial_context)
