@@ -2,6 +2,10 @@
 
 Ce projet est une application REST qui permet de traiter divers types de fichiers (à savoir .xls, .xlsx, .csv, .json, .pdf, .py) et de générer des analyses sur ces fichiers en utilisant un modèle de langage large (LLM). Il intègre des fonctionnalités d'extraction de texte, d'images, de données relationnelles et de code Python. Il utilise l'écosystème LangChain, des bases de données DuckDB, ainsi que FastAPI pour l'interface utilisateur.
 
+### Présentation de l'algorithme du Data Interpreter sous forme de schéma
+
+![Schéma de l'algorithme](./assets/data_interpreter_explain.png)
+
 ## Prérequis
 
 - Python 3.11 ou plus récent
@@ -212,4 +216,3 @@ sh run_terminal.sh --v
 ## Avertissement
 
 Ce projet est en cours de développement et peut contenir des bugs. Utilisez-le à vos risques et périls. Les résultats générés par le LLM peuvent ne pas être exacts ou appropriés pour toutes les situations. Veuillez toujours vérifier les résultats avant de les utiliser dans un contexte critique.
-
