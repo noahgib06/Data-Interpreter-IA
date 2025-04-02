@@ -50,6 +50,18 @@ Pour utiliser les modèles LLM avec Ollama, suivez les instructions ci-dessous :
     ollama pull llama3.2:latest
     ollama pull command-r-plus:latest
     ```
+   
+4. Installez Ollama :
+
+    macOS :
+    ```bash
+    brew install ollama
+    ```
+
+    Linux :
+    ```bash
+    curl -o- https://ollama.com/download.sh | bash
+    ```
 
 ## Installation du Projet
 
@@ -71,7 +83,7 @@ Pour utiliser les modèles LLM avec Ollama, suivez les instructions ci-dessous :
 Pour exécuter l'application, lancez la commande suivante :
 
 ```bash
-python main.py <chemin_vers_vos_fichiers>
+sh run_terminal.sh <chemin_vers_vos_fichiers>
 ```
 
 - Remplacez `<chemin_vers_vos_fichiers>` par le chemin des fichiers que vous souhaitez traiter.
@@ -82,7 +94,7 @@ L'application se lancera sur `http://0.0.0.0:8000`.
 
 
 ```bash
-python main.py --help
+sh run_terminal.sh --help
 ```
 
 ## Utilisation de l'API REST
@@ -126,10 +138,17 @@ curl -X POST "http://localhost:8000/query/" -H "Content-Type: application/json" 
 - `requirements.txt` : Liste des dépendances à installer.
 - `README.md` : Ce fichier de documentation.
 - `CHANGELOG.md` : Ce fichier récapitulatif des différentes versions du projet.
+- `src/`: Ce dossier contient les fichiers sources du projet. 
+- `pipelines/`: Ce dossier contient le script python de la sous solution sous forme de pipeline OpenWebui.
+- `.env`: Ce fichier contient les variables d'environnement essentielles pour une bonne exécution.
+- `docker-compose.yml`: Ce script Docker va permettre de mettre en place l'interface OpenWEBUI ainsi que son serveur Pipeline
+- `run_pipelines.sh`: Ce script sh va permettre de lancer l'interface OpenWEBUI.
+- `run_terminal.sh`: Ce script va permettre de lancer le data interpreter en mode terminal.
+- `version.py`: Ce fichier python référence la version actuelle de la solution déployée.
 
 ## Exemples de Fichiers Supportés
 
-- **Excel (.xls, .xlsx)** : Chargement de toutes les feuilles disponibles dans une base de données.
+- **Excel (.xls, .xlsx, xlsm)** : Chargement de toutes les feuilles disponibles dans une base de données.
 - **CSV (.csv)** : Chargement dans une table DuckDB avec traitement préalable.
 - **JSON (.json)** : Normalisation des données imbriquées et chargement.
 - **PDF (.pdf)** : Extraction de texte et images avec OCR.
@@ -137,5 +156,60 @@ curl -X POST "http://localhost:8000/query/" -H "Content-Type: application/json" 
 
 ## Exemple de commandes additionnelles
 
-- `python main.py --help` : Permet d'obtenir le helper du programme
-- `python main.py --v` : Permet d'obtenir le numéro de version du programme actuel
+- `sh run_terminal.sh --help` : Permet d'obtenir le helper du programme
+- `sh run_terminal.sh --v` : Permet d'obtenir le numéro de version du programme actuel
+
+## Flags à inclure si besoin dans les requêtes
+
+- `#force` : Permet de forcer le traitement d'une question meme si elle a été traitée précédemment.
+- `#pass` : Permet de ne pas utiliser le processus de traitement et de questionner simplement le LLM.
+
+### Exemple de requête avec le flag #force
+
+```
+{
+  "complex_query": "Quel est le nom de la première colonne ? #force"
+}
+```
+
+### Exemple de requête avec le flag #pass
+
+```
+{
+  "complex_query": "Quel est le nom de la première colonne ? #pass"
+}
+```
+
+## Configuration de l'environnement
+
+À la racine du projet, vous allez pouvoir retrouver un fichier `.env` qui vous permettra de configurer les différents paramètres du projet.
+- `DB_PATH` : Chemin vers la base de données DuckDB.
+- `LLM_MODEL` : Modèle LLM à utiliser (par exemple, `llama3.2`).
+- ...
+
+Ces paramètres peuvent être modifiés selon vos besoins.
+
+## Lancement Interface OpenWebui
+
+Pour lancer l'interface OpenWebui, exécutez la commande suivante :
+
+```bash
+sh run_pipelines.sh
+```
+
+## Les commandes utiles à lancer dans le mode terminal
+
+- Afin d'avoir une documentation détaillée, vous pouvez faire cette commande help au démarrage.
+```bash
+sh run_terminal.sh --help
+```
+
+- Afin de connaitre la version actuelle de la solution : 
+```bash
+sh run_terminal.sh --v
+```
+
+## Avertissement
+
+Ce projet est en cours de développement et peut contenir des bugs. Utilisez-le à vos risques et périls. Les résultats générés par le LLM peuvent ne pas être exacts ou appropriés pour toutes les situations. Veuillez toujours vérifier les résultats avant de les utiliser dans un contexte critique.
+
