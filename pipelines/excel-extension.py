@@ -37,8 +37,6 @@ UUID_REGEX = re.compile(
 )
 
 
-
-
 # Map log levels to logging module
 LOG_LEVEL_MAP = {
     "DEBUG": logging.DEBUG,

@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from history_func import (add_conversation_with_embedding,
+from history_func import (add_conversation_with_embedding, get_history,
                           retrieve_similar_conversations,
                           setup_history_database)
 from LlmGeneration import (command_r_plus_plan,
@@ -185,6 +185,39 @@ def llm_data_interpreter(question, schema, initial_context):
         logger.debug("🛠️ Generating execution plan...")
         sql_results = None
         python_results = None
+
+        if history_summary == "":
+            full_history = get_history(history_path)
+            # on prend les 8 dernières entrées (4 paires)
+            recent = full_history[-8:]
+            # regrouper en paires User/Assistant
+            pairs = []
+            for i in range(0, len(recent), 2):
+                if i + 1 < len(recent):
+                    user_msg = recent[i]["content"]
+                    assistant_msg = recent[i + 1]["content"]
+                    pairs.append((user_msg, assistant_msg))
+            # on garde au plus les 4 dernières paires
+            pairs = pairs[-4:]
+            # transformer en résumé textuel
+            history_summary = "\n".join(
+                [f"User: {q}\nAssistant: {a}" for q, a in pairs]
+            )
+            logger.debug(
+                f"🔍 Résumé fallback de l'historique (4 derniers échanges) :\n{history_summary}"
+            )
+        else:
+            # on garde au plus 4 messages similaires trouvés
+            similar_messages = similar_messages[:4]
+            history_summary = "\n".join(
+                [
+                    f"User: {conv['question']}\nAssistant: {conv['response']}"
+                    for conv in similar_messages
+                ]
+            )
+            logger.debug(
+                f"🔍 Résumé historique (similar messages) :\n{history_summary}"
+            )
 
         # Generate an action plan and extract Python code if needed
         plan, python_code = command_r_plus_plan(

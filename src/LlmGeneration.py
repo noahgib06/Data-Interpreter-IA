@@ -88,6 +88,8 @@ def command_r_plus_plan(question, schema, plan_model, history):
 
     # Define the LLM prompt for action plan generation
     prompt = (
+        f"History (used to guide and refine follow‑up queries on the same topic):\n"
+        f"{history}\n\n"
         f'The request is: "{question}"\n\n'
         "**Instructions to generate the action plan:**\n"
         "1. Determine whether data can be directly extracted from the columns in the schema. If possible, outline a plan to retrieve this data.\n"
@@ -97,6 +99,13 @@ def command_r_plus_plan(question, schema, plan_model, history):
         "5. Avoid suggesting unnecessary technologies or methods unless explicitly required. For example, when analyzing a document or extracting textual data, limit your response to essential extraction steps unless a specific output format (chart, plot, calculation, etc.) is requested.\n"
         "6. If a type conversion or adjustment (e.g., INTEGER to VARCHAR) is required to prevent errors, explicitly include these adjustments in the plan.\n"
         "7. If the schema does not contain relevant information, retrieve data from all tables separately without performing joins. There are no restrictions on the number of DuckDB queries you can execute.\n\n"
+        "8. When you have WHERE clauses, ensure that the arguments are in lower case format.\n"
+        "1. Use the history **only** to guide or refine searches when the user asks for complementary information on the same subject (e.g.:\n"
+        "   #force Quels sont les individus ayant un domaine d'expertise lié à la discrétion ?\n"
+        "   puis\n"
+        "   #force Quels sont les individus cités ayant le niveau expert ?"
+        "   — l'historique aide alors à affiner la requête SQL existante, en ajoutant des filtres si nécessaire).\n"
+        "   If the user changes topic entirely, ignore the history.\n\n"
         "**Expected Plan:**\n"
         "- Clearly define the approach (SQL query or action steps) based on the nature of the question.\n"
         "- If SQL is sufficient to answer the question, do not propose other unnecessary methods.\n"
@@ -104,6 +113,7 @@ def command_r_plus_plan(question, schema, plan_model, history):
         "- If the request involves code correction or improvement, only provide necessary steps without discussing the technological context.\n"
         "- Do not mention Python unless it is required and Python code is explicitly generated; otherwise, avoid using the term.\n"
         "- Ensure the plan is concise, strictly adhering to available schema information and the specific question.\n"
+        "- When you have WHERE clauses, ensure that the arguments are in lower case format.\n"
     )
 
     try:
@@ -261,37 +271,39 @@ def clean_sql_query(sql_query, schema):
 def extract_sql_from_plan(plan_text):
     """
     Extracts all SQL queries from a given plan text.
-    Uses regex to identify and retrieve SQL SELECT statements.
+    - Récupère les requêtes dans des blocs ```sql ... ```
+    - Récupère les requêtes classiques SELECT ... ;
     """
     logger = logging.getLogger("action_plan_logger")
-    logger.debug(
-        f"🔍 Starting `extract_sql_from_plan` with plan text: {plan_text}"
-    )  # DEBUG: Function initiation
+    logger.debug(f"🔍 Starting `extract_sql_from_plan` with plan text: {plan_text!r}")
 
     try:
-        # Extract SQL queries using regex pattern
-        queries = re.findall(r"SELECT .*?;", plan_text, re.DOTALL)
-        logger.info(
-            f"📌 Extracted SQL queries: {queries}"
-        )  # INFO: Log extracted queries
+        queries = []
 
-        # Remove duplicate queries
-        unique_queries = list(set(queries))
+        # 1) Blocs Markdown ```sql ... ```
+        md_blocks = re.findall(r"```sql\s*([\s\S]*?)```", plan_text, re.IGNORECASE)
+        logger.info(f"📌 Found Markdown SQL blocks: {md_blocks}")
+        for block in md_blocks:
+            # On enlève les indentations inutiles
+            sql = "\n".join(line.strip() for line in block.strip().splitlines())
+            queries.append(sql)
+
+        # 2) Requêtes classiques SELECT ... ;
+        classic = re.findall(r"(SELECT[\s\S]*?;)", plan_text, re.IGNORECASE)
+        logger.info(f"📌 Found classic SQL queries: {classic}")
+        queries.extend([q.strip() for q in classic])
+
+        # Dédupliquer
+        unique_queries = list(dict.fromkeys(queries))
         if unique_queries:
-            logger.info(
-                f"✅ Unique SQL queries extracted: {unique_queries}"
-            )  # INFO: Log unique queries
+            logger.info(f"✅ Unique SQL queries extracted: {unique_queries}")
             return unique_queries
         else:
-            logger.warning(
-                "⚠️ No SQL queries found in the plan."
-            )  # WARNING: No SQL queries detected
+            logger.warning("⚠️ No SQL queries found in the plan.")
             raise ValueError("No SQL queries found in the plan.")
 
     except Exception as e:
-        logger.error(
-            f"❌ Error extracting SQL queries: {e}"
-        )  # ERROR: Log extraction failure
+        logger.error(f"❌ Error extracting SQL queries: {e}")
         raise
 
 
