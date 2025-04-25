@@ -26,9 +26,7 @@ from version import __version__
 load_dotenv()
 
 # Variable globale pour le niveau de log
-LOG_LEVEL_ENV = os.getenv(
-    "LOG_LEVEL_main"
-)  # Changez ce niveau pour DEBUG, INFO, WARNING, ERROR, CRITICAL
+LOG_LEVEL_ENV = os.getenv("LOG_LEVEL_main", "INFO")  # Valeur par défaut: INFO
 DATABASE_MODEL = os.getenv("DATABASE_MODEL")
 REASONING_MODEL = os.getenv("REASONING_MODEL")
 PLAN_MODEL = os.getenv("PLAN_MODEL")
@@ -49,12 +47,18 @@ def setup_logger(
     """
     Configure un logger global pour l'application avec des niveaux configurables.
     """
-    if not os.path.exists("Logs"):
-        os.makedirs("Logs", exist_ok=True)
+    # Créer le répertoire de logs s'il n'existe pas
+    log_dir = os.path.join(os.path.dirname(__file__), "Logs")
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir, exist_ok=True)
+
+    # Nettoyer le chemin du fichier de log
+    if log_file:
+        log_file = log_file.strip('"')  # Supprimer les guillemets
+        log_file = os.path.join(log_dir, os.path.basename(log_file))
+
     logger = logging.getLogger("main_logger")
-    logger.setLevel(
-        LOG_LEVEL_MAP.get(LOG_LEVEL_ENV)
-    )  # Niveau global basé sur la variable LOG_LEVEL
+    logger.setLevel(LOG_LEVEL_MAP.get(LOG_LEVEL_ENV, logging.INFO))
 
     # Format des logs
     formatter = logging.Formatter(
@@ -63,16 +67,14 @@ def setup_logger(
 
     # Handler pour la console
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(
-        LOG_LEVEL_MAP.get(LOG_LEVEL_ENV)
-    )  # Niveau basé sur LOG_LEVEL
+    console_handler.setLevel(LOG_LEVEL_MAP.get(LOG_LEVEL_ENV, logging.INFO))
     console_handler.setFormatter(formatter)
 
     # Handler pour les fichiers avec rotation
     file_handler = RotatingFileHandler(
         log_file, maxBytes=max_size, backupCount=backup_count
     )
-    file_handler.setLevel(LOG_LEVEL_MAP.get(LOG_LEVEL_ENV))  # Niveau basé sur LOG_LEVEL
+    file_handler.setLevel(LOG_LEVEL_MAP.get(LOG_LEVEL_ENV, logging.INFO))
     file_handler.setFormatter(formatter)
 
     # Ajout des handlers au logger

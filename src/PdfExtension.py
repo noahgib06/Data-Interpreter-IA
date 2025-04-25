@@ -11,7 +11,7 @@ from PIL import Image, ImageEnhance, ImageFilter
 load_dotenv()
 
 # Configuration du logger global
-LOG_LEVEL_ENV = os.getenv("LOG_LEVEL_PdfExtension")
+LOG_LEVEL_ENV = os.getenv("LOG_LEVEL_PdfExtension", "INFO")  # Valeur par défaut: INFO
 
 # Mappage des niveaux de log
 LOG_LEVEL_MAP = {
@@ -31,10 +31,18 @@ def setup_logger(
     """
     Configure un logger global pour suivre toutes les actions.
     """
-    if not os.path.exists("../Logs"):
-        os.makedirs("../Logs", exist_ok=True)
+    # Créer le répertoire de logs s'il n'existe pas
+    log_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Logs")
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir, exist_ok=True)
+
+    # Nettoyer le chemin du fichier de log
+    if log_file:
+        log_file = log_file.strip('"')  # Supprimer les guillemets
+        log_file = os.path.join(log_dir, os.path.basename(log_file))
+
     logger = logging.getLogger("pdf_extraction_logger")
-    logger.setLevel(LOG_LEVEL_MAP.get(LOG_LEVEL_ENV))
+    logger.setLevel(LOG_LEVEL_MAP.get(LOG_LEVEL_ENV, logging.INFO))
 
     # Format des logs
     formatter = logging.Formatter(
@@ -43,14 +51,14 @@ def setup_logger(
 
     # Handler console
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(LOG_LEVEL_MAP.get(LOG_LEVEL_ENV))
+    console_handler.setLevel(LOG_LEVEL_MAP.get(LOG_LEVEL_ENV, logging.INFO))
     console_handler.setFormatter(formatter)
 
     # Handler fichier avec rotation
     file_handler = RotatingFileHandler(
         log_file, maxBytes=max_size, backupCount=backup_count
     )
-    file_handler.setLevel(LOG_LEVEL_MAP.get(LOG_LEVEL_ENV))
+    file_handler.setLevel(LOG_LEVEL_MAP.get(LOG_LEVEL_ENV, logging.INFO))
     file_handler.setFormatter(formatter)
 
     # Ajout des handlers

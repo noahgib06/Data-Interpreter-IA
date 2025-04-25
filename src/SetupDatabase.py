@@ -10,6 +10,9 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 from unidecode import unidecode
+import markdown
+import docx
+import textract
 
 from PdfExtension import extract_pdf
 from PythonExtension import extract_python
@@ -17,9 +20,7 @@ from PythonExtension import extract_python
 load_dotenv()
 
 # Configuration du logger global
-LOG_LEVEL_ENV = os.getenv(
-    "LOG_LEVEL_SetupDatabase"
-)  # Changez pour INFO, EXCEPTION, DEBUG, ERROR. si nécessaire
+LOG_LEVEL_ENV = os.getenv("LOG_LEVEL_SetupDatabase", "INFO")  # Valeur par défaut: INFO
 
 UUID_REGEX = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_"
@@ -40,22 +41,32 @@ def setup_logger(
     max_size=10 * 1024 * 1024,
     backup_count=5,
 ):
-    if not os.path.exists("../Logs"):
-        os.makedirs("../Logs", exist_ok=True)
+    # Créer le répertoire de logs s'il n'existe pas
+    log_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Logs")
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir, exist_ok=True)
+
+    # Nettoyer le chemin du fichier de log
+    if log_file:
+        log_file = log_file.strip('"')  # Supprimer les guillemets
+        log_file = os.path.join(log_dir, os.path.basename(log_file))
+
     logger = logging.getLogger("database_logger")
-    logger.setLevel(LOG_LEVEL_MAP.get(LOG_LEVEL_ENV))
+    logger.setLevel(LOG_LEVEL_MAP.get(LOG_LEVEL_ENV, logging.INFO))
+
+    # Format des logs
     formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
 
     # Handler console
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(LOG_LEVEL_MAP.get(LOG_LEVEL_ENV))
+    console_handler.setLevel(LOG_LEVEL_MAP.get(LOG_LEVEL_ENV, logging.INFO))
     console_handler.setFormatter(formatter)
 
     # Handler fichier avec rotation
     file_handler = RotatingFileHandler(
         log_file, maxBytes=max_size, backupCount=backup_count
     )
-    file_handler.setLevel(LOG_LEVEL_MAP.get(LOG_LEVEL_ENV))
+    file_handler.setLevel(LOG_LEVEL_MAP.get(LOG_LEVEL_ENV, logging.INFO))
     file_handler.setFormatter(formatter)
 
     # Ajout des handlers
@@ -283,6 +294,10 @@ def load_file_data(filepath):
         return process_pdf_file(filepath)  # Process PDF file
     elif filepath.endswith(".py"):
         return process_python_file(filepath)  # Process Python script
+    elif filepath.endswith(".md"):
+        return process_text_file(filepath)  # Process markdown file
+    elif filepath.endswith((".doc", ".docx")):
+        return process_text_file(filepath)  # Process Word document
     else:
         logger.error(
             f"❌ Unsupported file format: {filepath}"
@@ -360,6 +375,35 @@ def process_python_file(filepath):
         logger.info("📜 Extracted full module code.")  # INFO: Module code extraction
 
     return data
+
+
+def process_text_file(filepath):
+    """
+    Processes text-based files (.md, .doc, .docx) by extracting their content.
+    Converts extracted data into DataFrames for further analysis.
+    """
+    logger.info(f"📄 Processing text file: {filepath}")  # INFO: Start processing text file
+    
+    data = {}
+    
+    try:
+        if filepath.endswith(".md"):
+            # For markdown files, we'll extract both raw and rendered content
+            with open(filepath, 'r', encoding='utf-8') as f:
+                raw_content = f.read()
+                html_content = markdown.markdown(raw_content)
+                data["raw_content"] = pd.DataFrame([{"content": raw_content}])
+                data["html_content"] = pd.DataFrame([{"content": html_content}])
+        elif filepath.endswith((".doc", ".docx")):
+            # For Word documents, extract text using textract
+            text = textract.process(filepath).decode('utf-8')
+            data["content"] = pd.DataFrame([{"content": text}])
+            
+        logger.info(f"📝 Extracted content from file: {filepath}")
+        return data
+    except Exception as e:
+        logger.error(f"❌ Error processing text file '{filepath}': {e}")
+        raise ValueError(f"Error processing text file: {str(e)}")
 
 
 def generate_table_name(filepath, sheet_name):

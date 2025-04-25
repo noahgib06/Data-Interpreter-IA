@@ -1,5 +1,24 @@
 # Récapitulatif des versions du Data Interpreter
 
+## [1.5.7] - 2025-04-25
+
+## Ajouté : 
+- Prise en charge des formats de fichiers Doc, Docx ainsi que Markdown
+
+## Modifié :
+- Amélioration de la gestion des résultats SQL générés en acceptant que les 20 premiers pour les donner à l'agent Final.
+- Modification des prompts des Agents pour consulter différents formats de fichiers et exploiter au mieux les sources d'informations.
+
+## [1.5.6] - 2025-04-22
+
+## Ajouté : 
+- Mise en place d'un système d'historique à l'agent Planification afin de garder du contexte tout au long d'une conversation
+
+## Modifié :
+- Changement du modèle LLM par défaut pour le raisonnement et la Planifcation.
+- Amélioration du parser de requetes SQL pour prendre en compte le format Markdown.
+- Modification du prompt de l'agent LLM
+
 ## [1.5.5] - 2025-04-02
 ## Ajouté
 - Mise en place d'un cleaner afin de pouvoir vider le cache du Data Interpreter concernant lié aux conversations qui ont été supprimé sur l'interface OpenWEBI.

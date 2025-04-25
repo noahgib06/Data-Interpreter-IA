@@ -29,8 +29,14 @@ def setup_logger(
     backup_count=3,
 ):
     # Create log directory if it doesn't exist
-    if not os.path.exists("../Logs"):
-        os.makedirs("../Logs", exist_ok=True)
+    log_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Logs")
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir, exist_ok=True)
+
+    # Clean up the log file path
+    if log_file:
+        log_file = log_file.strip('"')  # Remove any quotes
+        log_file = os.path.join(log_dir, os.path.basename(log_file))
 
     # Initialize logger
     logger = logging.getLogger("history_logger")

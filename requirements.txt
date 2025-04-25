@@ -27,3 +27,6 @@ logger
 pandas==2.0.3
 pyarrow==12.0.0
 unidecode
+markdown 
+python-docx 
+textract
