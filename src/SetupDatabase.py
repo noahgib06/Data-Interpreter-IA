@@ -6,13 +6,12 @@ import re
 from logging.handlers import RotatingFileHandler
 
 import duckdb
+import markdown
 import numpy as np
 import pandas as pd
+import textract
 from dotenv import load_dotenv
 from unidecode import unidecode
-import markdown
-import docx
-import textract
 
 from PdfExtension import extract_pdf
 from PythonExtension import extract_python
@@ -382,23 +381,25 @@ def process_text_file(filepath):
     Processes text-based files (.md, .doc, .docx) by extracting their content.
     Converts extracted data into DataFrames for further analysis.
     """
-    logger.info(f"📄 Processing text file: {filepath}")  # INFO: Start processing text file
-    
+    logger.info(
+        f"📄 Processing text file: {filepath}"
+    )  # INFO: Start processing text file
+
     data = {}
-    
+
     try:
         if filepath.endswith(".md"):
             # For markdown files, we'll extract both raw and rendered content
-            with open(filepath, 'r', encoding='utf-8') as f:
+            with open(filepath, "r", encoding="utf-8") as f:
                 raw_content = f.read()
                 html_content = markdown.markdown(raw_content)
                 data["raw_content"] = pd.DataFrame([{"content": raw_content}])
                 data["html_content"] = pd.DataFrame([{"content": html_content}])
         elif filepath.endswith((".doc", ".docx")):
             # For Word documents, extract text using textract
-            text = textract.process(filepath).decode('utf-8')
+            text = textract.process(filepath).decode("utf-8")
             data["content"] = pd.DataFrame([{"content": text}])
-            
+
         logger.info(f"📝 Extracted content from file: {filepath}")
         return data
     except Exception as e:

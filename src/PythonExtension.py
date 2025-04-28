@@ -9,7 +9,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Configuration du logger global
-LOG_LEVEL_ENV = os.getenv("LOG_LEVEL_PythonExtension", "INFO")  # Valeur par défaut: INFO
+LOG_LEVEL_ENV = os.getenv(
+    "LOG_LEVEL_PythonExtension", "INFO"
+)  # Valeur par défaut: INFO
 
 # Mappage des niveaux de log
 LOG_LEVEL_MAP = {

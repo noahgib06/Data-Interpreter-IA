@@ -1,6 +1,8 @@
 # import matplotlib.pyplot as plt  # plt.show(block=False) plt.savefig(path)
 import io
 import logging
+import logging.handlers
+import mimetypes
 import os
 import re
 import shutil
@@ -10,6 +12,7 @@ import threading
 import time
 from contextlib import redirect_stdout
 
+import requests
 from dotenv import load_dotenv
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
@@ -77,39 +80,106 @@ logger = setup_logger()
 active_observers = []
 observed_directories = set()
 created_paths = []  # Liste pour stocker les chemins des fichiers et dossiers créés
+OPENWEBUI_API = os.getenv("OPENWEBUI_API", "").rstrip("/") + "/"
+OPENWEBUI_API_KEY = os.getenv("OPENWEBUI_API_KEY")
+DOWNLOAD_URL = os.getenv("DOWNLOAD_URL", "").rstrip("/") + "/"
 
 
-def move_and_create_links(source_files, target_directory, base_url):
+def get_mime_type(file_path):
+    """
+    Détermine le type MIME d'un fichier basé sur son extension.
+    """
+    mime_type, _ = mimetypes.guess_type(file_path)
+    return mime_type or "application/octet-stream"
+
+
+def download_file_openwebui(file: str):
+    """
+    Télécharge un fichier à partir d'un nom de fichier.
+    Utilise un système de mapping pour éviter les téléchargements redondants.
+    """
+    try:
+        file_path = os.path.abspath(file)
+
+        headers = {
+            "accept": "application/json",
+            "Authorization": f"Bearer {OPENWEBUI_API_KEY}",
+        }
+        url = f"{OPENWEBUI_API}files/"
+        logger.info(f"Uploading file to OpenWebUI API: {url}")
+        logger.info(f"File path: {file}")
+
+        file_id = ""
+        try:
+            mime_type = get_mime_type(file_path)
+            with open(file, "rb") as f:
+                files = {"file": (os.path.basename(file), f, mime_type)}
+                logger.info(f"Files: {files}")
+                logger.info(f"Headers: {headers}")
+                logger.info(f"URL: {url}")
+
+                response = requests.post(url, headers=headers, files=files)
+                logger.info(f"Upload response status: {response.status_code}")
+
+                if response.status_code != 200:
+                    logger.error(
+                        f"File upload failed: {response.status_code} - {response.text}"
+                    )
+                    return {"error": f"File upload failed: {response.status_code}"}
+
+                response_data = response.json()
+                logger.info(f"Upload response: {response_data}")
+                file_id = response_data.get("id", "")
+
+                if not file_id:
+                    logger.error("No file ID returned from upload")
+                    return {"error": "No file ID returned from upload"}
+
+                logger.info(f"Added file mapping: {file_path} -> {file_id}")
+        except Exception as e:
+            logger.error(f"Error uploading file: {str(e)}")
+            return {"error": f"Error uploading file: {str(e)}"}
+
+        download_url = f"{DOWNLOAD_URL}files/{file_id}/content"
+        logger.info(f"Download URL: {download_url}")
+        return {"download_url": download_url}
+    except Exception as e:
+        logger.error(f"Error in download_file_openwebui: {str(e)}")
+        return {"error": f"Error in download_file_openwebui: {str(e)}"}
+
+
+def move_and_create_links(source_files, target_directory):
     """
     Moves files to the target directory and generates accessible local URLs.
     Ensures the target directory exists before moving files.
     """
-    logger.info(
-        "📂 Starting file move and link generation process."
-    )  # INFO: Process start
-    os.makedirs(target_directory, exist_ok=True)  # Ensure the target directory exists
+    logger.info("📂 Starting file move and link generation process.")
+    os.makedirs(target_directory, exist_ok=True)
     generated_links = []
+    processed_files = set()  # Pour éviter les doublons
 
     for file in source_files:
         try:
-            file_name = os.path.basename(file)
-            target_path = os.path.join(target_directory, file_name)
+            # Éviter les doublons et les fichiers déjà dans uploads
+            if file in processed_files or "uploads" in file:
+                continue
+            processed_files.add(file)
 
-            # Move the file to the target directory
-            shutil.move(file, target_path)
-            file_url = os.path.join(
-                base_url, os.path.relpath(target_path, start=target_directory)
-            )
-            generated_links.append(file_url)
+            if OPENWEBUI_API is not None:
+                res = download_file_openwebui(file)
+                if "download_url" in res:
+                    generated_links.append(res["download_url"])
+                    logger.info(
+                        f"🔗 Generated local URL for file access: {res['download_url']}"
+                    )
+            else:
+                file_name = os.path.basename(file)
+                target_path = os.path.join(target_directory, file_name)
+                shutil.move(file, target_path)
+                logger.info(f"✅ File moved to {target_path}")
 
-            logger.info(f"✅ File moved to {target_path}")  # INFO: Successful file move
-            logger.info(
-                f"🔗 Generated local URL for file access: {file_url}"
-            )  # INFO: File URL logged
         except Exception as e:
-            logger.error(
-                f"❌ Error moving file {file}: {e}"
-            )  # ERROR: File move failure
+            logger.error(f"❌ Error moving file {file}: {e}")
 
     return generated_links
 
@@ -120,20 +190,47 @@ class FileCreationHandler(FileSystemEventHandler):
     Monitors changes and logs detected events.
     """
 
+    def is_valid_file(self, path):
+        """
+        Vérifie si le fichier doit être traité ou ignoré.
+        """
+        ignored_extensions = {
+            ".log",  # Fichiers log
+            ".db",  # Bases de données
+            ".db-journal",  # Fichiers temporaires SQLite
+            ".tmp",  # Fichiers temporaires
+            ".temp",  # Fichiers temporaires
+            ".bak",  # Fichiers backup
+            ".swp",  # Fichiers swap vim
+            ".lock",  # Fichiers lock
+            "~",  # Fichiers backup
+        }
+
+        # Ignorer les fichiers dans le dossier uploads et les fichiers système
+        return (
+            not any(path.endswith(ext) for ext in ignored_extensions)
+            and "uploads" not in path
+            and not os.path.basename(path).startswith(".")
+        )
+
     def on_any_event(self, event):
         """
         Logs any detected file system event.
         """
-        logger.info(
-            f"📌 Event detected: {event.event_type} - {event.src_path}"
-        )  # INFO: Log general event
+        # logger.info(
+        #    f"📌 Event detected: {event.event_type} - {event.src_path}"
+        # )  # INFO: Log general event
 
     def on_created(self, event):
         """
         Logs newly created files and adds them to the tracking list.
         """
         path = os.path.abspath(event.src_path)
-        if not event.is_directory and path not in created_paths:
+        if (
+            not event.is_directory
+            and path not in created_paths
+            and self.is_valid_file(path)
+        ):
             created_paths.append(path)
             logger.info(f"🆕 File created: {event.src_path}")  # INFO: Log file creation
 
@@ -142,7 +239,11 @@ class FileCreationHandler(FileSystemEventHandler):
         Logs modified files and adds them to the tracking list.
         """
         path = os.path.abspath(event.src_path)
-        if not event.is_directory and path not in created_paths:
+        if (
+            not event.is_directory
+            and path not in created_paths
+            and self.is_valid_file(path)
+        ):
             created_paths.append(path)
             logger.info(
                 f"✏️ File modified: {event.src_path}"
@@ -223,14 +324,33 @@ def parse_code(tool):
     return code
 
 
+def clean_sql_results(sql_results):
+    """
+    Nettoie et valide les résultats SQL pour éviter les problèmes de syntaxe.
+    """
+    if not isinstance(sql_results, list):
+        return []
+
+    cleaned_results = []
+    for result in sql_results:
+        if isinstance(result, dict):
+            # S'assurer que les clés 'results' et 'metadata' existent
+            if "results" in result and isinstance(result["results"], list):
+                cleaned_result = {
+                    "results": result["results"],
+                    "metadata": result.get("metadata", {}),
+                }
+                cleaned_results.append(cleaned_result)
+
+    return cleaned_results
+
+
 def parse_and_execute_python_code(tool, context, sql_results):
     """
     Parses and executes Python code extracted from the given tool response.
     Automatically handles missing module installations and tracks created/modified files.
     """
-    logger.info(
-        "🚀 Starting Python code analysis and execution."
-    )  # INFO: Process start
+    logger.info("🚀 Starting Python code analysis and execution.")
 
     # Reset tracked paths and stop any running observers
     global created_paths, observed_directories
@@ -268,26 +388,24 @@ def parse_and_execute_python_code(tool, context, sql_results):
         except ImportError:
             logger.info(
                 f"⚠️ Missing module detected: {module}. Attempting installation..."
-            )  # INFO: Module installation attempt
+            )
             try:
                 subprocess.check_call([sys.executable, "-m", "pip", "install", module])
-                logger.info(
-                    f"✅ Successfully installed module: {module}"
-                )  # INFO: Module installed
+                logger.info(f"✅ Successfully installed module: {module}")
             except subprocess.CalledProcessError as e:
-                logger.error(
-                    f"❌ Failed to install module {module}: {e}"
-                )  # ERROR: Module installation failed
+                logger.error(f"❌ Failed to install module {module}: {e}")
                 context["error"] = f"Failed to install module {module}. Error: {e}"
                 return context, "", []
 
     # Set up execution context
     exec_context = globals()
     if sql_results:
-        exec_context["sql_results"] = sql_results
+        # Nettoyer les résultats SQL avant de les injecter dans le contexte
+        cleaned_sql_results = clean_sql_results(sql_results)
+        exec_context["sql_results"] = cleaned_sql_results
         logger.info(
-            f"📊 Injected SQL results into execution context: {sql_results}"
-        )  # INFO: SQL results passed
+            f"📊 Injected SQL results into execution context: {cleaned_sql_results}"
+        )
 
     buffer = io.StringIO()
     try:
@@ -296,9 +414,9 @@ def parse_and_execute_python_code(tool, context, sql_results):
             exec(code, exec_context)
         output = buffer.getvalue()
         context["python_results"] = output
-        logger.info("✅ Python code executed successfully.")  # INFO: Execution success
+        logger.info("✅ Python code executed successfully.")
     except Exception as e:
-        logger.error(f"❌ Error executing Python code: {e}")  # ERROR: Execution failure
+        logger.error(f"❌ Error executing Python code: {e}")
         context["error"] = f"Python error: {e}"
         output = ""
 
@@ -307,16 +425,10 @@ def parse_and_execute_python_code(tool, context, sql_results):
     stop_event.set()
     watch_thread.join()
 
-    logger.info(
-        f"📂 Detected created/modified files: {created_paths}"
-    )  # INFO: List modified files
+    logger.info(f"📂 Detected created/modified files: {created_paths}")
     context["created_paths"] = move_and_create_links(
-        created_paths,
-        os.getenv("SAVE_DIRECTORY"),
-        "http://localhost:8080/files",
+        created_paths, os.getenv("SAVE_DIRECTORY")
     )
-    logger.info(
-        f"🔗 Generated file links: {context['created_paths']}"
-    )  # INFO: File links generated
+    logger.info(f"🔗 Generated file links: {context['created_paths']}")
 
     return context, output, context["created_paths"]

@@ -36,17 +36,6 @@ services:
     networks:
       - webui-net
 
-  filebrowser:
-    image: filebrowser/filebrowser
-    container_name: filebrowser
-    volumes:
-      - shared_data:/srv
-      - ./data/:/srv/data
-    ports:
-      - "8080:80"
-    environment:
-      - FB_NOAUTH=true
-
 networks:
   webui-net:
 

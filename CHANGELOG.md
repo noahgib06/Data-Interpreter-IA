@@ -1,5 +1,10 @@
 # Récapitulatif des versions du Data Interpreter
 
+## [1.6.0] - 2025-04-28
+
+## Modifié :
+- Suppression de la dépendance Filebrowser pour télécharger les fichiers générés, tout passe par l'api OpenWebui désormais.
+
 ## [1.5.7] - 2025-04-25
 
 ## Ajouté : 

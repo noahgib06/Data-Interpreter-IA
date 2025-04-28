@@ -1,7 +1,7 @@
+import json
 import logging
 import os
 import re
-import json
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 
@@ -101,123 +101,144 @@ def truncate_large_sql_results(sql_results, max_entries=MAX_SQL_RESULTS_IN_PROMP
     """
     Tronque et résume les résultats SQL s'ils sont trop volumineux.
     Garantit que toutes les tables sont représentées équitablement.
-    
+
     Args:
         sql_results: Liste de résultats SQL à traiter
         max_entries: Nombre maximum d'entrées à conserver au total
-        
+
     Returns:
         Résultats tronqués avec un résumé des données
     """
     logger.debug("Vérification de la taille des résultats SQL pour optimisation")
-    
+
     if not sql_results or not isinstance(sql_results, list):
         return sql_results
-    
+
     # 1. Compter le nombre total d'entrées et identifier les tables
     total_entries = 0
     tables_info = []
-    
+
     for i, result_set in enumerate(sql_results):
-        if not isinstance(result_set, dict) or 'results' not in result_set:
-            tables_info.append({
-                'index': i,
-                'entries': 0,
-                'source_table': 'unknown_table',
-                'needs_truncation': False
-            })
+        if not isinstance(result_set, dict) or "results" not in result_set:
+            tables_info.append(
+                {
+                    "index": i,
+                    "entries": 0,
+                    "source_table": "unknown_table",
+                    "needs_truncation": False,
+                }
+            )
             continue
-            
-        results = result_set['results']
-        source_table = result_set.get('source_table', f'table_{i}')
-        
-        tables_info.append({
-            'index': i,
-            'entries': len(results),
-            'source_table': source_table,
-            'needs_truncation': len(results) > (max_entries // max(1, len(sql_results)))
-        })
-        
+
+        results = result_set["results"]
+        source_table = result_set.get("source_table", f"table_{i}")
+
+        tables_info.append(
+            {
+                "index": i,
+                "entries": len(results),
+                "source_table": source_table,
+                "needs_truncation": len(results)
+                > (max_entries // max(1, len(sql_results))),
+            }
+        )
+
         total_entries += len(results)
-    
+
     # Si le nombre total d'entrées est inférieur à la limite, aucune troncature n'est nécessaire
     if total_entries <= max_entries:
-        logger.debug(f"Pas de troncature nécessaire: {total_entries} entrées au total (max: {max_entries})")
+        logger.debug(
+            f"Pas de troncature nécessaire: {total_entries} entrées au total (max: {max_entries})"
+        )
         return sql_results
-    
+
     # 2. Déterminer combien d'entrées allouer à chaque table
-    logger.info(f"Troncature nécessaire: {total_entries} entrées au total (max: {max_entries})")
-    
+    logger.info(
+        f"Troncature nécessaire: {total_entries} entrées au total (max: {max_entries})"
+    )
+
     # Garantir un minimum d'entrées par table (au moins 5, ou moins si la table est plus petite)
     min_entries_per_table = min(5, max_entries // max(1, len(tables_info)))
-    remaining_entries = max_entries - (min_entries_per_table * len([t for t in tables_info if t['entries'] > 0]))
-    
+    remaining_entries = max_entries - (
+        min_entries_per_table * len([t for t in tables_info if t["entries"] > 0])
+    )
+
     # Répartir les entrées restantes proportionnellement à la taille de chaque table
     for table_info in tables_info:
-        if table_info['entries'] == 0:
-            table_info['allocated_entries'] = 0
+        if table_info["entries"] == 0:
+            table_info["allocated_entries"] = 0
             continue
-            
+
         # Garantir le minimum
-        table_info['allocated_entries'] = min(table_info['entries'], min_entries_per_table)
-    
+        table_info["allocated_entries"] = min(
+            table_info["entries"], min_entries_per_table
+        )
+
     # Distribuer les entrées restantes proportionnellement
-    if remaining_entries > 0 and sum(t['entries'] for t in tables_info) > 0:
+    if remaining_entries > 0 and sum(t["entries"] for t in tables_info) > 0:
         # Calculer le facteur de proportion pour chaque table
-        total_remaining_entries = sum(max(0, t['entries'] - t['allocated_entries']) for t in tables_info)
-        
+        total_remaining_entries = sum(
+            max(0, t["entries"] - t["allocated_entries"]) for t in tables_info
+        )
+
         if total_remaining_entries > 0:
             for table_info in tables_info:
-                if table_info['entries'] <= table_info['allocated_entries']:
+                if table_info["entries"] <= table_info["allocated_entries"]:
                     continue
-                    
-                proportion = (table_info['entries'] - table_info['allocated_entries']) / total_remaining_entries
+
+                proportion = (
+                    table_info["entries"] - table_info["allocated_entries"]
+                ) / total_remaining_entries
                 additional_entries = min(
-                    table_info['entries'] - table_info['allocated_entries'],
-                    max(0, int(remaining_entries * proportion))
+                    table_info["entries"] - table_info["allocated_entries"],
+                    max(0, int(remaining_entries * proportion)),
                 )
-                table_info['allocated_entries'] += additional_entries
+                table_info["allocated_entries"] += additional_entries
                 remaining_entries -= additional_entries
-        
+
         # Distribuer les entrées restantes si nécessaire
         i = 0
         while remaining_entries > 0 and i < len(tables_info):
             table_info = tables_info[i]
-            if table_info['entries'] > table_info['allocated_entries']:
-                table_info['allocated_entries'] += 1
+            if table_info["entries"] > table_info["allocated_entries"]:
+                table_info["allocated_entries"] += 1
                 remaining_entries -= 1
             i = (i + 1) % len(tables_info)
             if i == 0:  # Si on a fait un tour complet sans pouvoir allouer plus
                 break
-    
+
     # 3. Tronquer chaque table selon l'allocation et ajouter des métadonnées
     processed_results = []
-    
+
     for table_info in tables_info:
-        i = table_info['index']
+        i = table_info["index"]
         original_result = sql_results[i]
-        
+
         # Si ce n'est pas un ensemble de résultats valide ou s'il est déjà assez petit
-        if not isinstance(original_result, dict) or 'results' not in original_result or \
-           len(original_result.get('results', [])) <= table_info['allocated_entries']:
+        if (
+            not isinstance(original_result, dict)
+            or "results" not in original_result
+            or len(original_result.get("results", []))
+            <= table_info["allocated_entries"]
+        ):
             processed_results.append(original_result)
             continue
-        
+
         # Tronquer les résultats selon l'allocation
-        results = original_result['results']
-        allocated = table_info['allocated_entries']
-        
+        results = original_result["results"]
+        allocated = table_info["allocated_entries"]
+
         truncated_result = {
-            'results': results[:allocated],
-            'metadata': {
-                'total_rows': len(results),
-                'shown_rows': allocated,
-                'truncated': True,
-                'source_table': table_info['source_table'],
-                'summary': f"Résultats tronqués: {allocated} sur {len(results)} lignes affichées"
-            }
+            "results": results[:allocated],
+            "metadata": {
+                "total_rows": len(results),
+                "shown_rows": allocated,
+                "truncated": True,
+                "source_table": table_info["source_table"],
+                "summary": f"Résultats tronqués: {allocated} sur {len(results)} lignes affichées",
+            },
         }
-        
+
         # Essayer de créer un résumé basique des données
         try:
             if results and isinstance(results[0], dict):
@@ -227,27 +248,38 @@ def truncate_large_sql_results(sql_results, max_entries=MAX_SQL_RESULTS_IN_PROMP
                     # Compter les valeurs uniques pour chaque colonne
                     values = [r.get(key) for r in results if r.get(key) is not None]
                     unique_values = set(values)
-                    
+
                     # Si la colonne a moins de 20 valeurs uniques et moins de 30% du nombre total d'entrées,
                     # on la considère comme catégorique
-                    if len(unique_values) < 20 and len(unique_values) < len(values) * 0.3:
+                    if (
+                        len(unique_values) < 20
+                        and len(unique_values) < len(values) * 0.3
+                    ):
                         value_counts = {}
                         for v in values:
                             value_counts[v] = value_counts.get(v, 0) + 1
-                        
+
                         # Trier par fréquence décroissante
-                        sorted_counts = sorted(value_counts.items(), key=lambda x: x[1], reverse=True)
-                        categorical_summaries[key] = sorted_counts[:10]  # Top 10 catégories
-                
+                        sorted_counts = sorted(
+                            value_counts.items(), key=lambda x: x[1], reverse=True
+                        )
+                        categorical_summaries[key] = sorted_counts[
+                            :10
+                        ]  # Top 10 catégories
+
                 if categorical_summaries:
-                    truncated_result['metadata']['categorical_summary'] = categorical_summaries
-                    
+                    truncated_result["metadata"][
+                        "categorical_summary"
+                    ] = categorical_summaries
+
         except Exception as e:
             logger.warning(f"Erreur lors de la création du résumé des données: {e}")
-        
+
         processed_results.append(truncated_result)
-        logger.info(f"Table {table_info['source_table']}: Résultats tronqués de {len(results)} à {allocated} entrées")
-    
+        logger.info(
+            f"Table {table_info['source_table']}: Résultats tronqués de {len(results)} à {allocated} entrées"
+        )
+
     return processed_results
 
 
@@ -596,7 +628,9 @@ def generate_tools_with_llm(
             )  # DEBUG: Log available SQL results
 
             # Tronquer les résultats SQL pour le prompt Python si nécessaire
-            truncated_sql_for_python = truncate_large_sql_results(context['sql_results'])
+            truncated_sql_for_python = truncate_large_sql_results(
+                context["sql_results"]
+            )
 
             prompt = (
                 f'The initial request is: "{context["question"]}"\n\n'
@@ -645,43 +679,45 @@ def generate_tools_with_llm(
 def generate_manual_sources(sql_results):
     """
     Génère des sources manuelles à partir des résultats SQL complets.
-    
+
     Args:
         sql_results: Liste des résultats SQL non tronqués
-        
+
     Returns:
         Une chaîne de caractères contenant les sources formatées
     """
     if not sql_results:
         return ""
-    
+
     sources = []
     sources.append("\n\n--- SOURCES DÉTAILLÉES ---\n")
-    
+
     for i, result_set in enumerate(sql_results):
-        if not isinstance(result_set, dict) or 'results' not in result_set:
+        if not isinstance(result_set, dict) or "results" not in result_set:
             continue
-            
-        results = result_set.get('results', [])
-        source_table = result_set.get('source_table', f'table_{i+1}')
-        
+
+        results = result_set.get("results", [])
+        source_table = result_set.get("source_table", f"table_{i+1}")
+
         sources.append(f"\nSource: {source_table} ({len(results)} entrées)\n")
-        
+
         # Limiter à 100 entrées max dans les sources détaillées pour éviter des réponses trop longues
         display_limit = min(100, len(results))
-        
+
         if display_limit > 0:
             for j, row in enumerate(results[:display_limit]):
                 if isinstance(row, dict):
                     row_str = " | ".join([f"{k}: {v}" for k, v in row.items()])
                 else:
                     row_str = str(row)
-                
+
                 sources.append(f"  - Ligne {j+1}: {row_str}\n")
-            
+
             if len(results) > display_limit:
-                sources.append(f"  ... et {len(results) - display_limit} autres entrées\n")
-    
+                sources.append(
+                    f"  ... et {len(results) - display_limit} autres entrées\n"
+                )
+
     return "".join(sources)
 
 
@@ -698,15 +734,15 @@ def generate_final_response_with_llama(
     )  # DEBUG: Function initiation
 
     # Conserver une copie des résultats SQL originaux pour les sources manuelles
-    original_sql_results = context.get('sql_results', [])
+    original_sql_results = context.get("sql_results", [])
 
     # Tronquer les résultats SQL s'ils sont trop volumineux
     truncated_sql_results = None
-    if 'sql_results' in context and context['sql_results']:
+    if "sql_results" in context and context["sql_results"]:
         logger.info("Optimisation des résultats SQL pour le prompt final")
-        truncated_sql_results = truncate_large_sql_results(context['sql_results'])
+        truncated_sql_results = truncate_large_sql_results(context["sql_results"])
     else:
-        truncated_sql_results = context.get('sql_results', [])
+        truncated_sql_results = context.get("sql_results", [])
 
     # Create the section for generated files
     files_section = ""
@@ -719,7 +755,9 @@ def generate_final_response_with_llama(
     else:
         logger.info("📂 No files were generated.")  # INFO: No files available
 
-    logger.debug(f"Voila les resultats SQL finaux : {safe_json_dumps(truncated_sql_results, indent=2)}")
+    logger.debug(
+        f"Voila les resultats SQL finaux : {safe_json_dumps(truncated_sql_results, indent=2)}"
+    )
 
     # Construct the prompt for the reasoning model
     prompt = (
@@ -751,16 +789,13 @@ def generate_final_response_with_llama(
         "1. Martin Dupont - Niveau: Expert - Site: Brest [Source: experts_table, ligne 12]\n"
         "2. Sophie Laurent - Niveau: Expert - Site: Brest [Source: experts_table, ligne 15]\n"
         "3. Jean Durand - Niveau: Expert - Site: Brest [Source: experts_table, ligne 23]\n\n"
-        
         "Example 2:\n"
         "Les personnes ayant participé à plus de 3 projets en 2022 sont :\n\n"
         "1. Thomas Bernard - 5 projets [Source: projets_table, lignes 34-38]\n"
         "2. Marie Lefevre - 4 projets [Source: projets_table, lignes 45-48]\n"
         "Chaque personne est indiquée avec le nombre exact de projets et la source précise des données.\n\n"
-        
         "Example 3:\n"
         "Aucun individu ne correspond aux critères 'niveau d'expertise Senior' ET 'site de Marseille'. [Source: recherche complète dans experts_table]\n\n"
-        
         "Example 4 (pour grands volumes de données):\n"
         "Voici les 20 premiers documents référencés dans la base de données (sur un total de 412) [Source: documents_table, 412 lignes au total]:\n\n"
         "1. Rapport 2022-01 - Catégorie: Finances - Date: 2022-01-15 [Source: documents_table, ligne 1]\n"
@@ -771,7 +806,6 @@ def generate_final_response_with_llama(
         "- Finances: 189 documents [Source: documents_table, comptage des entrées catégorie='Finances']\n"
         "- RH: 103 documents [Source: documents_table, comptage des entrées catégorie='RH']\n"
         "- Technique: 120 documents [Source: documents_table, comptage des entrées catégorie='Technique']\n\n"
-        
         "NE JAMAIS RÉPONDRE AVEC DES RÉSUMÉS GÉNÉRAUX. TOUJOURS DONNER DES RÉPONSES PRÉCISES AVEC SOURCES."
     )
 
