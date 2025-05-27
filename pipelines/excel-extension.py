@@ -195,20 +195,41 @@ class Pipeline:
             logger.info("Running startup cleanup...")
 
             db_path = f"/app/backend/data/webui.db"
-            con = duckdb.connect(database=db_path, read_only=True)
+            
+            # Check if the database file exists before trying to connect
+            if not os.path.exists(db_path):
+                logger.warning(f"Database file not found: {db_path}. Skipping cleanup.")
+                return
+            
+            # Use sqlite3 directly instead of DuckDB with SQLite extension
+            import sqlite3
+            
+            try:
+                # Connect directly to SQLite database
+                con = sqlite3.connect(db_path)
+                cursor = con.cursor()
+                
+                # Query the chat table
+                cursor.execute("SELECT id FROM chat")
+                chat_ids = cursor.fetchall()
+                chat_ids_set = {str(row[0]) for row in chat_ids}
 
-            chat_ids = con.execute("SELECT id FROM chat").fetchall()
-            chat_ids_set = {str(row[0]) for row in chat_ids}
+                data_folder = self.shared_data_directory
+                if os.path.exists(data_folder):
+                    for folder in os.listdir(data_folder):
+                        folder_path = os.path.join(data_folder, folder)
 
-            data_folder = self.shared_data_directory
-            for folder in os.listdir(data_folder):
-                folder_path = os.path.join(data_folder, folder)
+                        if os.path.isdir(folder_path) and folder not in chat_ids_set:
+                            shutil.rmtree(folder_path)
+                            logger.info(f"Folder deleted : {folder_path}")
+                else:
+                    logger.info(f"Data folder does not exist: {data_folder}")
 
-                if os.path.isdir(folder_path) and folder not in chat_ids_set:
-                    shutil.rmtree(folder_path)
-                    logger.info(f"Folder deleted : {folder_path}")
-
-            logger.info("History Cache Cleanup complete.")
+                logger.info("History Cache Cleanup complete.")
+                
+            finally:
+                if 'con' in locals():
+                    con.close()
 
         except Exception as e:
             logger.error(f"Erreur lors du nettoyage des dossiers: {e}", exc_info=True)
