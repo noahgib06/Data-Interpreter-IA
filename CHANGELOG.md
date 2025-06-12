@@ -1,5 +1,14 @@
 # Récapitulatif des versions du Data Interpreter
 
+## [1.7.0] - 2025-06-12
+
+## Ajouté :
+- Ajout de la possibilité de modifier le modèle d'embedding par défaut.
+
+## Modifié :
+
+- Suppression du modèle duckdb de la pipeline pour l'agent SQL.
+
 ## [1.6.0] - 2025-04-28
 
 ## Modifié :

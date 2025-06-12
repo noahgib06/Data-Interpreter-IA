@@ -21,8 +21,7 @@ from urllib3.exceptions import NewConnectionError
 from history_func import (add_conversation_with_embedding,
                           retrieve_similar_conversations,
                           setup_history_database)
-from LlmGeneration import (command_r_plus_plan,
-                           generate_final_response_with_llama,
+from LlmGeneration import (generate_final_response_with_llama, generate_plan,
                            generate_tools_with_llm)
 from SetupDatabase import prepare_database
 from SqlTool import get_schema
@@ -84,29 +83,14 @@ def setup_logger(log_file, max_size=10 * 1024 * 1024, backup_count=5):
 
 logger = setup_logger(LOG_FILE_MAIN)
 
-
-# Test connection to Ollama
-def test_ollama_connection():
-    try:
-        model = OllamaLLM(
-            model="llama3.2:latest", base_url="http://host.docker.internal:11434"
-        )
-        response = model.generate(prompts=["Test message"])
-        logger.info(f"Test message response: {response}")
-    except Exception as e:
-        logger.error(f"Failed to connect to Ollama: {e}", exc_info=True)
-        raise RuntimeError(
-            "Failed to connect to Ollama. Check the service URL and availability."
-        )
-
-
 class Pipeline:
     class Valves(BaseModel):
         LLAMAINDEX_OLLAMA_BASE_URL: str = "http://host.docker.internal:11434"
         LLAMAINDEX_REASONING_MODEL_NAME: str = os.getenv("REASONING_MODEL")
-        LLAMAINDEX_DB_MODEL_NAME: str = os.getenv("DATABASE_MODEL")
         LLAMAINDEX_PLAN_MODEL_NAME: str = os.getenv("PLAN_MODEL")
         LLAMAINDEX_CODE_MODEL_NAME: str = os.getenv("CODE_MODEL")
+        LLAMAINDEX_EMBEDDING_MODEL_NAME: str = os.getenv("EMBEDDING_MODEL")
+
         # FICHIERS: str = ""
 
     def __init__(self):
@@ -138,14 +122,14 @@ class Pipeline:
             LLAMAINDEX_REASONING_MODEL_NAME=os.getenv(
                 "LLAMAINDEX_REASONING_MODEL_NAME", os.getenv("REASONING_MODEL")
             ),
-            LLAMAINDEX_DB_MODEL_NAME=os.getenv(
-                "LLAMAINDEX_DB_MODEL_NAME", os.getenv("DATABASE_MODEL")
-            ),
             LLAMAINDEX_PLAN_MODEL_NAME=os.getenv(
                 "LLAMAINDEX_PLAN_MODEL_NAME", os.getenv("PLAN_MODEL")
             ),
             LLAMAINDEX_CODE_MODEL_NAME=os.getenv(
                 "LLAMAINDEX_CODE_MODEL_NAME", os.getenv("CODE_MODEL")
+            ),
+            LLAMAINDEX_EMBEDDING_MODEL_NAME=os.getenv(
+                "LLAMAINDEX_EMBEDDING_MODEL_NAME", os.getenv("EMBEDDING_MODEL")
             ),
         )
         logger.info(
@@ -154,10 +138,6 @@ class Pipeline:
 
         try:
             # Initialize LLM models
-            self.database_model = OllamaLLM(
-                model=self.valves.LLAMAINDEX_DB_MODEL_NAME,
-                base_url="http://host.docker.internal:11434",
-            )
             self.reasoning_model = OllamaLLM(
                 model=self.valves.LLAMAINDEX_REASONING_MODEL_NAME,
                 base_url="http://host.docker.internal:11434",
@@ -170,12 +150,7 @@ class Pipeline:
                 model=self.valves.LLAMAINDEX_CODE_MODEL_NAME,
                 base_url="http://host.docker.internal:11434",
             )
-
-            # Test connection to Ollama service
-            test_ollama_connection()
-            logger.info(
-                "Models initialized successfully."
-            )  # Info log: successful model initialization
+            self.embedding_model = os.getenv("EMBEDDING_MODEL")
 
         except NewConnectionError as conn_error:
             logger.error(
@@ -353,11 +328,6 @@ class Pipeline:
         )  # DEBUG: Log received request body
 
         # Initialize LLM models if their configurations are available
-        if self.valves.LLAMAINDEX_DB_MODEL_NAME is not None:
-            self.database_model = OllamaLLM(
-                model=self.valves.LLAMAINDEX_DB_MODEL_NAME,
-                base_url="http://host.docker.internal:11434",
-            )
         if self.valves.LLAMAINDEX_REASONING_MODEL_NAME is not None:
             self.reasoning_model = OllamaLLM(
                 model=self.valves.LLAMAINDEX_REASONING_MODEL_NAME,
@@ -373,11 +343,18 @@ class Pipeline:
                 model=self.valves.LLAMAINDEX_CODE_MODEL_NAME,
                 base_url="http://host.docker.internal:11434",
             )
+        if self.valves.LLAMAINDEX_EMBEDDING_MODEL_NAME is not None:
+            self.embedding_model = self.valves.LLAMAINDEX_EMBEDDING_MODEL_NAME
 
         clear_history()
 
         # Extract chat_id from metadata
-        self.chat_id = body.get("metadata", {}).get("chat_id", "unknown_chat")
+
+        self.chat_id = body.get("metadata", {}).get("chat_id")
+
+        print(f"voila le chat id : {self.chat_id}")
+
+
         if self.chat_id is None:
             logger.error(
                 "🚨 ERROR: chat_id is None, correcting to 'unknown_chat'"
@@ -558,7 +535,7 @@ class Pipeline:
 
         # Retrieve similar past conversations
         similar_messages = retrieve_similar_conversations(
-            question, self.custom_history_path
+            question, self.custom_history_path, self.embedding_model
         )
 
         # Initialize SQL and Python results in the context
@@ -589,7 +566,7 @@ class Pipeline:
                     history_summary,  # Use summarized history
                 )
                 add_conversation_with_embedding(
-                    self.custom_history_path, question, final_response
+                    self.custom_history_path, question, final_response, self.embedding_model
                 )
 
                 return final_response
@@ -608,7 +585,7 @@ class Pipeline:
             self.sql_results = None
 
             # Generate plan and Python code
-            plan, python_code = command_r_plus_plan(
+            plan, python_code = generate_plan(
                 question, schema, self.plan_model, history_summary
             )
 
@@ -620,7 +597,6 @@ class Pipeline:
                     context,
                     self.sql_results,
                     self.python_results,
-                    self.database_model,
                     self.code_model,
                     python_code,
                     self.custom_db_path,
@@ -653,7 +629,7 @@ class Pipeline:
         )
 
         add_conversation_with_embedding(
-            self.custom_history_path, question, final_response
+            self.custom_history_path, question, final_response, self.embedding_model
         )
 
         return final_response

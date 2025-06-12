@@ -283,13 +283,13 @@ def truncate_large_sql_results(sql_results, max_entries=MAX_SQL_RESULTS_IN_PROMP
     return processed_results
 
 
-def command_r_plus_plan(question, schema, plan_model, history):
+def generate_plan(question, schema, plan_model, history):
     """
     Generates an action plan based on the given question and schema.
     Uses an LLM to determine the appropriate steps, SQL queries, or Python code required.
     """
     logger.debug(
-        f"🔄 Starting `command_r_plus_plan` with question: {question}, schema: {schema}, history: {history}"
+        f"🔄 Starting `generate_plan` with question: {question}, schema: {schema}, history: {history}"
     )  # DEBUG: Function initiation
 
     # Construct database schema description
@@ -536,7 +536,6 @@ def generate_tools_with_llm(
     context,
     sql_results,
     python_results,
-    database_model,
     code_model,
     python_code,
     custom_sql_path=None,

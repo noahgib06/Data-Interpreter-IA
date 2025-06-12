@@ -2,12 +2,12 @@ services:
   openwebui:
     image: ghcr.io/open-webui/open-webui:main
     ports:
-      - "3001:8080"
+      - "3000:8080"
     environment:
       OLLAMA_BASE_URL: "http://host.docker.internal:11434"  # Communique avec le service Ollama
       OPENAI_API_URL: "http://pipelines:9099"  # Communique avec le service Pipelines
     volumes:
-      - openwebui-data:/app/backend/data
+      - open-webui:/app/backend/data
       - ./open-webui:/app/backend/data  # Persistance des données localement
     depends_on:
       - pipelines
@@ -27,7 +27,7 @@ services:
       - ./data:/srv/data
       - ./.env:/app/.env
       - ./Logs:/app/Logs
-      - openwebui-data:/app/backend/data
+      - open-webui:/app/backend/data
       - ./open-webui:/app/backend/data  # Persistance des données localement
     environment:
       - PIPELINES_DIR=/app/pipelines
@@ -44,6 +44,6 @@ volumes:
     driver: local
   shared_data:
     driver: local
-  openwebui-data:
+  open-webui:
     driver: local
 

@@ -16,8 +16,7 @@ from pydantic import BaseModel
 from history_func import (add_conversation_with_embedding, get_history,
                           retrieve_similar_conversations,
                           setup_history_database)
-from LlmGeneration import (command_r_plus_plan,
-                           generate_final_response_with_llama,
+from LlmGeneration import (generate_final_response_with_llama, generate_plan,
                            generate_tools_with_llm)
 from SetupDatabase import prepare_database, remove_database_file
 from SqlTool import get_schema
@@ -27,9 +26,9 @@ load_dotenv()
 
 # Variable globale pour le niveau de log
 LOG_LEVEL_ENV = os.getenv("LOG_LEVEL_main", "INFO")  # Valeur par défaut: INFO
-DATABASE_MODEL = os.getenv("DATABASE_MODEL")
 REASONING_MODEL = os.getenv("REASONING_MODEL")
 PLAN_MODEL = os.getenv("PLAN_MODEL")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL")
 
 # Mappage des niveaux de log
 LOG_LEVEL_MAP = {
@@ -144,7 +143,7 @@ def llm_data_interpreter(question, schema, initial_context):
 
     # Retrieve similar past interactions for context
     similar_messages = retrieve_similar_conversations(
-        question, os.getenv("HISTORY_DB_FILE")
+        question, os.getenv("HISTORY_DB_FILE"), EMBEDDING_MODEL
     )
     context["sql_results"] = context.get("sql_results", [])
     context["python_results"] = context.get("python_results", [])
@@ -173,7 +172,7 @@ def llm_data_interpreter(question, schema, initial_context):
                 history_summary,
             )
             add_conversation_with_embedding(
-                os.getenv("HISTORY_DB_FILE"), question, final_response
+                os.getenv("HISTORY_DB_FILE"), question, final_response, EMBEDDING_MODEL
             )
 
             return final_response
@@ -222,7 +221,7 @@ def llm_data_interpreter(question, schema, initial_context):
             )
 
         # Generate an action plan and extract Python code if needed
-        plan, python_code = command_r_plus_plan(
+        plan, python_code = generate_plan(
             question, schema, plan_model, history_summary
         )
 
@@ -233,7 +232,6 @@ def llm_data_interpreter(question, schema, initial_context):
             context,
             sql_results,
             python_results,
-            database_model,
             code_model,
             python_code,
             os.getenv("DB_FILE"),
@@ -262,7 +260,7 @@ def llm_data_interpreter(question, schema, initial_context):
 
     # Save the interaction in history
     add_conversation_with_embedding(
-        os.getenv("HISTORY_DB_FILE"), question, final_response
+        os.getenv("HISTORY_DB_FILE"), question, final_response, EMBEDDING_MODEL
     )
 
     return final_response
@@ -401,8 +399,6 @@ if __name__ == "__main__":
         setup_history_database(os.getenv("HISTORY_DB_FILE"))
 
         # Initializing LLM models
-        database_model = OllamaLLM(model=DATABASE_MODEL)
-        logger.info(f"📊 Database model initialized: {DATABASE_MODEL}")
         reasoning_model = OllamaLLM(model=REASONING_MODEL)
         logger.info(f"🧠 Reasoning model initialized: {REASONING_MODEL}")
         plan_model = OllamaLLM(model=PLAN_MODEL)
