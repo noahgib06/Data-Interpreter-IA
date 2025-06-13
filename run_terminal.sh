@@ -15,6 +15,25 @@ detect_venvs() {
     find . -maxdepth 1 -type d -exec test -f "{}/bin/activate" \; -print
 }
 
+# Vérification des prérequis macOS
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    echo "Détection de macOS - Vérification des prérequis système..."
+    
+    # Vérifier si Homebrew est installé
+    if ! command -v brew &> /dev/null; then
+        echo "Homebrew n'est pas installé. Installation en cours..."
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    fi
+    
+    # Vérifier et installer tesseract si nécessaire
+    if ! command -v tesseract &> /dev/null; then
+        echo "Installation de tesseract (requis pour pytesseract)..."
+        brew install tesseract
+    fi
+    
+    echo "Prérequis macOS vérifiés et installés."
+fi
+
 # Si aucun venv actif
 if ! venv_actif; then
     echo "Aucun environnement virtuel actif détecté."
