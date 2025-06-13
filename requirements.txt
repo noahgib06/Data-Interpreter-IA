@@ -1,4 +1,5 @@
-duckdb==0.8.1
+# Using duckdb-engine for better cross-platform compatibility
+duckdb-engine==0.8.1
 numpy
 fastapi
 uvicorn
