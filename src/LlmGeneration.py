@@ -25,7 +25,7 @@ LOG_LEVEL_MAP = {
 }
 
 # Limite maximale d'entrées SQL à inclure dans le prompt (pour les performances)
-MAX_SQL_RESULTS_IN_PROMPT = 20  # Ajuster selon vos besoins
+MAX_SQL_RESULTS_IN_PROMPT = int(os.getenv("MAX_SQL_RESULTS_IN_PROMPT", "20"))  # Valeur par défaut: 20
 
 
 def serialize_datetime(obj):
