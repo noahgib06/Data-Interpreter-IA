@@ -50,7 +50,7 @@ fi
 
 # 1. Installer les dépendances Python
 echo "Installation des dépendances Python..."
-#pip install -r requirements.txt
+pip install -r requirements.txt
 
 # 2. Modifier le fichier de configuration pour activer le mode Terminal
 CONFIG_FILE=".env"
