@@ -363,7 +363,7 @@ def generate_plan(question, schema, plan_model, history):
     return plan, python_code
 
 
-def adjust_sql_query_with_duckdb(sql_query, schema, duckdb_model):
+def adjust_sql_query_with_duckdb(sql_query, schema):
     """
     Adjusts an SQL query for compatibility with the DuckDB engine,
     handling potential type errors and ensuring schema compliance.
@@ -580,7 +580,7 @@ def generate_tools_with_llm(
 
                     # Adjust SQL query for DuckDB compatibility
                     sql_query = adjust_sql_query_with_duckdb(
-                        sql_query, schema, database_model
+                        sql_query, schema
                     )
                     logger.info(
                         f"🔧 Adjusted SQL query: {sql_query}"
