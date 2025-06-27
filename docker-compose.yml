@@ -8,6 +8,7 @@ services:
       OPENAI_API_URL: "http://pipelines:9099"  # Communique avec le service Pipelines
     volumes:
       - open-webui:/app/backend/data
+      - ./open-webui:/app/backend/data
     networks:
       - webui-net
 
@@ -25,6 +26,7 @@ services:
       - ./.env:/app/.env
       - ./Logs:/app/Logs
       - open-webui:/app/backend/data
+      - ./open-webui:/app/backend/data
     environment:
       - PIPELINES_DIR=/app/pipelines
       - PIPELINES_REQUIREMENTS_PATH=/app/pipelines/requirements.txt
@@ -38,8 +40,6 @@ networks:
   webui-net:
 
 volumes:
-  ollama:
-    driver: local
   shared_data:
     driver: local
   open-webui:
