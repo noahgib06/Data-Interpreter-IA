@@ -8,9 +8,6 @@ services:
       OPENAI_API_URL: "http://pipelines:9099"  # Communique avec le service Pipelines
     volumes:
       - open-webui:/app/backend/data
-      - ./open-webui:/app/backend/data  # Persistance des données localement
-    depends_on:
-      - pipelines
     networks:
       - webui-net
 
@@ -28,13 +25,14 @@ services:
       - ./.env:/app/.env
       - ./Logs:/app/Logs
       - open-webui:/app/backend/data
-      - ./open-webui:/app/backend/data  # Persistance des données localement
     environment:
       - PIPELINES_DIR=/app/pipelines
       - PIPELINES_REQUIREMENTS_PATH=/app/pipelines/requirements.txt
       - PYTHONPATH=/app/src
     networks:
       - webui-net
+    depends_on:
+      - openwebui
 
 networks:
   webui-net:

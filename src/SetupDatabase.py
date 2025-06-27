@@ -190,7 +190,7 @@ def convert_to_lowercase(df):
     """
     Convertit les valeurs de type chaîne en minuscules dans un DataFrame.
     """
-    return df.applymap(lambda x: x.lower() if isinstance(x, str) else x)
+    return df.map(lambda x: x.lower() if isinstance(x, str) else x)
 
 
 def detect_delimiter(filepath):
@@ -259,13 +259,25 @@ def load_file_data(filepath):
     )  # INFO: Log file loading attempt
 
     if filepath.endswith(".xls"):
-        data = pd.read_excel(filepath, sheet_name=None, engine="xlrd")  # Load .xls file
-        return {sheet: convert_to_lowercase(df) for sheet, df in data.items()}
+        try:
+            data = pd.read_excel(filepath, sheet_name=None, engine="xlrd")  # Load .xls file
+            return {sheet: convert_to_lowercase(df) for sheet, df in data.items()}
+        except Exception as e:
+            logger.warning(f"⚠️ Arrow compatibility issue with .xls file, trying alternative method: {e}")
+            # Fallback method without arrow
+            data = pd.read_excel(filepath, sheet_name=None, engine="xlrd", dtype=str)
+            return {sheet: convert_to_lowercase(df) for sheet, df in data.items()}
     elif filepath.endswith(".xlsx") or filepath.endswith(".xlsm"):
-        data = pd.read_excel(
-            filepath, sheet_name=None, engine="openpyxl"
-        )  # Load .xlsx or .xlsm
-        return {sheet: convert_to_lowercase(df) for sheet, df in data.items()}
+        try:
+            data = pd.read_excel(
+                filepath, sheet_name=None, engine="openpyxl"
+            )  # Load .xlsx or .xlsm
+            return {sheet: convert_to_lowercase(df) for sheet, df in data.items()}
+        except Exception as e:
+            logger.warning(f"⚠️ Arrow compatibility issue with .xlsx/.xlsm file, trying alternative method: {e}")
+            # Fallback method without arrow
+            data = pd.read_excel(filepath, sheet_name=None, engine="openpyxl", dtype=str)
+            return {sheet: convert_to_lowercase(df) for sheet, df in data.items()}
     elif filepath.endswith(".csv"):
         delimiter = detect_delimiter(filepath)
         logger.info(f"🔍 Detected delimiter: '{delimiter}' for {filepath}")
@@ -538,10 +550,59 @@ def create_table_from_dataframe(conn, df, table_name):
     # Insert data into the newly created table
     try:
         if not df.empty:
-            batch_size = max(1, len(df) // 500)  # Split into ~500 row batches
-            for chunk in np.array_split(df, batch_size):
-                conn.register("temp_chunk", chunk)
-                conn.execute(f"INSERT INTO {table_name} SELECT * FROM temp_chunk")
+            # Convert DataFrame to native Python types completely
+            df_clean = df.copy()
+            
+            # Ensure all data is in native Python types
+            for col in df_clean.columns:
+                if df_clean[col].dtype == 'object':
+                    df_clean[col] = df_clean[col].astype(str).fillna('')
+                elif 'int' in str(df_clean[col].dtype).lower():
+                    df_clean[col] = df_clean[col].astype('int64').fillna(0)
+                elif 'float' in str(df_clean[col].dtype).lower():
+                    df_clean[col] = df_clean[col].astype('float64').fillna(0.0)
+                elif 'bool' in str(df_clean[col].dtype).lower():
+                    df_clean[col] = df_clean[col].astype(bool).fillna(False)
+                else:
+                    df_clean[col] = df_clean[col].astype(str).fillna('')
+            
+            # Get clean column names
+            clean_columns = [clean_column_name(col) for col in df_clean.columns]
+            columns_str = ', '.join([f'"{col}"' for col in clean_columns])
+            
+            # Insert data row by row using direct SQL to avoid arrow issues
+            batch_size = 1000
+            for i in range(0, len(df_clean), batch_size):
+                batch = df_clean.iloc[i:i + batch_size]
+                
+                # Build VALUES clauses for batch insert
+                values_list = []
+                for _, row in batch.iterrows():
+                    row_values = []
+                    for col in df_clean.columns:
+                        value = row[col]
+                        if pd.isna(value) or value is None:
+                            row_values.append('NULL')
+                        elif isinstance(value, str):
+                            # Escape single quotes in strings
+                            escaped_value = value.replace("'", "''")
+                            row_values.append(f"'{escaped_value}'")
+                        elif isinstance(value, (int, float)):
+                            row_values.append(str(value))
+                        elif isinstance(value, bool):
+                            row_values.append('TRUE' if value else 'FALSE')
+                        else:
+                            # Convert to string as fallback
+                            escaped_value = str(value).replace("'", "''")
+                            row_values.append(f"'{escaped_value}'")
+                    
+                    values_list.append(f"({', '.join(row_values)})")
+                
+                if values_list:
+                    values_str = ', '.join(values_list)
+                    insert_query = f"INSERT INTO {table_name} ({columns_str}) VALUES {values_str}"
+                    conn.execute(insert_query)
+                
         logger.info(
             f"📊 Data successfully inserted into '{table_name}'."
         )  # INFO: Data insertion success

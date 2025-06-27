@@ -130,23 +130,26 @@ def add_conversation_with_embedding(path, question, response, model="all-minilm:
         question_embedding_json = json.dumps(question_embedding)
         response_embedding_json = json.dumps(response_embedding)
 
-        # Insert user question into chat history
-        conn.execute(
-            """
-            INSERT INTO chat_history (conversation_id, role, content, embedding) 
-            VALUES (?, ?, ?, ?)
-            """,
-            (conversation_id, "user", question, question_embedding_json),
-        )
+        # Escape single quotes in text content
+        question_escaped = question.replace("'", "''")
+        response_escaped = response.replace("'", "''")
+        question_embedding_escaped = question_embedding_json.replace("'", "''")
+        response_embedding_escaped = response_embedding_json.replace("'", "''")
 
-        # Insert assistant response into chat history
-        conn.execute(
-            """
+        # Insert user question into chat history using direct SQL
+        user_query = f"""
             INSERT INTO chat_history (conversation_id, role, content, embedding) 
-            VALUES (?, ?, ?, ?)
-            """,
-            (conversation_id, "assistant", response, response_embedding_json),
-        )
+            VALUES ('{conversation_id}', 'user', '{question_escaped}', '{question_embedding_escaped}')
+        """
+        conn.execute(user_query)
+
+        # Insert assistant response into chat history using direct SQL
+        assistant_query = f"""
+            INSERT INTO chat_history (conversation_id, role, content, embedding) 
+            VALUES ('{conversation_id}', 'assistant', '{response_escaped}', '{response_embedding_escaped}')
+        """
+        conn.execute(assistant_query)
+        
         conn.close()
         logger.info("✅ Conversation successfully added.")
     except Exception as e:
