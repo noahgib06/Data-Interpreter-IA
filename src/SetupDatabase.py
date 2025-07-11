@@ -9,9 +9,9 @@ import duckdb
 import markdown
 import numpy as np
 import pandas as pd
-import textract
 from dotenv import load_dotenv
 from unidecode import unidecode
+from docx import Document
 
 from PdfExtension import extract_pdf
 from PythonExtension import extract_python
@@ -407,10 +407,15 @@ def process_text_file(filepath):
                 html_content = markdown.markdown(raw_content)
                 data["raw_content"] = pd.DataFrame([{"content": raw_content}])
                 data["html_content"] = pd.DataFrame([{"content": html_content}])
-        elif filepath.endswith((".doc", ".docx")):
-            # For Word documents, extract text using textract
-            text = textract.process(filepath).decode("utf-8")
+        elif filepath.endswith(".docx"):
+            # For Word documents (.docx), extract text using python-docx
+            doc = Document(filepath)
+            text = '\n'.join([paragraph.text for paragraph in doc.paragraphs])
             data["content"] = pd.DataFrame([{"content": text}])
+        elif filepath.endswith(".doc"):
+            # For legacy Word documents (.doc), log warning as we can't process them without textract
+            logger.warning(f"⚠️ Legacy .doc files are not supported. Please convert '{filepath}' to .docx format.")
+            data["content"] = pd.DataFrame([{"content": f"Legacy .doc file: {os.path.basename(filepath)} - conversion to .docx required"}])
 
         logger.info(f"📝 Extracted content from file: {filepath}")
         return data

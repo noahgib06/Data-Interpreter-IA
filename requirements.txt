@@ -1,5 +1,5 @@
 # Using duckdb-engine for better cross-platform compatibility
-duckdb-engine==0.8.1
+duckdb-engine==0.8.0
 numpy
 fastapi
 uvicorn
@@ -29,5 +29,4 @@ pandas==2.2.3
 pyarrow==20.0.0
 unidecode
 markdown 
-python-docx 
-textract
+python-docx
